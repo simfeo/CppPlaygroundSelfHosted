@@ -3,7 +3,7 @@
 #
 #   ./build_wasm_clang.sh [workdir]
 #
-# Needs: cmake, ninja, a C++17 host compiler, curl, tar, ~40 GB disk, ~1 h.
+# Needs: cmake, ninja, a C++17 host compiler, curl, tar, ~5 GB disk, ~1 h.
 # Produces $WORK/out/{clang.wasm,wasm-ld.wasm} plus the wasi sysroot.
 set -euo pipefail
 

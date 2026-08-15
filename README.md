@@ -74,7 +74,7 @@ compiler binaries) untouched.
 ### Rebuilding the toolchain
 
 Linux (WSL is fine), **no Docker**. Needs cmake, ninja, a C++17 host compiler,
-curl, ~40 GB disk and about an hour on 16 cores:
+curl, ~5 GB disk and about an hour on 16 cores:
 
 ```bash
 bash tools/toolchain/build_wasm_clang.sh ~/wasm-clang
