@@ -10,7 +10,14 @@ self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js');
 
 const VENDOR = '../vendor/';
 const SOURCE_EXT = /\.(c|cc|cpp|cxx|c\+\+)$/i;
+const THREAD_HEADERS = /#\s*include\s*[<"](thread|future|shared_mutex|stop_token|pthread\.h)[>"]|std::(thread|jthread|async)/;
 const TARGET = 'wasm32-wasip1';
+const TARGET_THREADS = 'wasm32-wasip1-threads';
+
+// Shared memory limits, in 64 KiB pages. Fixed here so the host can create a
+// matching WebAssembly.Memory: the module imports it rather than defining it.
+const THREAD_INITIAL_PAGES = 512;    // 32 MiB
+const THREAD_MAX_PAGES = 4096;       // 256 MiB
 
 let fs = null;
 let resourceDir = null;      // /lib/clang/<version>, discovered from the sysroot
@@ -108,8 +115,10 @@ function includeDirs(files) {
 async function compile(file, opts, incDirs) {
   const obj = objName(file.path);
   const isC = /\.c$/i.test(file.path);
+  const target = opts.threads ? TARGET_THREADS : TARGET;
   await run('clang.wasm', '/bin/clang', [
-    `--target=${TARGET}`,
+    `--target=${target}`,
+    ...(opts.threads ? ['-pthread'] : []),
     '--sysroot=/',
     `-resource-dir=${resourceDir}`,
     '-c',
@@ -118,7 +127,7 @@ async function compile(file, opts, incDirs) {
     ...(isC ? [] : [
       `-std=${opts.std}`,
       '-fwasm-exceptions', '-mllvm', '-wasm-use-legacy-eh=false',
-      '-nostdinc++', '-isystem', '/include/c++/v1',
+      '-nostdinc++', '-isystem', opts.threads ? '/include/c++/v1-threads' : '/include/c++/v1',
     ]),
     `-O${opts.opt}`,
     '-fcolor-diagnostics',
@@ -130,16 +139,26 @@ async function compile(file, opts, incDirs) {
   return obj;
 }
 
-async function link(objs, out) {
-  const libdir = `/lib/${TARGET}`;
+async function link(objs, out, opts) {
+  const target = opts.threads ? TARGET_THREADS : TARGET;
+  const libdir = `/lib/${target}`;
+  const builtins = opts.threads
+    ? `${resourceDir}/lib/wasm32-unknown-wasip1-threads/libclang_rt.builtins.a`
+    : `${resourceDir}/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a`;
   await run('wasm-ld.wasm', 'wasm-ld', [
     `-L${libdir}`,
     `${libdir}/crt1.o`,
     ...objs,
     '-lc', '-lc++', '-lc++abi', '-lunwind', '-lm',
-    `${resourceDir}/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a`,
+    builtins,
     '-z', 'stack-size=1048576',
-    '--max-memory=1073741824',
+    // With threads every instance must attach to one shared memory, so the
+    // module imports it; --export-memory is only implicit without --import-memory.
+    ...(opts.threads
+      ? ['--shared-memory', '--import-memory', '--export-memory',
+         `--initial-memory=${THREAD_INITIAL_PAGES * 65536}`,
+         `--max-memory=${THREAD_MAX_PAGES * 65536}`]
+      : ['--max-memory=1073741824']),
     '-o', out,
   ]);
 }
@@ -180,6 +199,31 @@ function makeStdin(preloaded) {
   };
 }
 
+/* wasi-threads: each thread is another worker running the same module against
+ * the same memory.
+ *
+ * The threads are created by the page, not here. As soon as the program calls
+ * join it blocks this worker in Atomics.wait, freezing its event loop - so a
+ * thread started from here could never deliver its output or its errors. The
+ * page is never blocked, so it owns the thread workers.
+ *
+ * thread-spawn must return a thread id synchronously, so the id is allocated
+ * here and the worker starts a moment later; that is exactly what the spec
+ * allows. */
+let threadTid = 0;
+
+function spawnThread(module, memory) {
+  return function threadSpawn(startArg) {
+    const tid = ++threadTid;
+    post({ id: 'thread-spawn', data: { module, memory, tid, startArg } });
+    return tid;
+  };
+}
+
+function stopThreads() {
+  post({ id: 'threads-done' });
+}
+
 async function build(payload) {
   const { files, stdin } = payload;
   const opts = payload.options;
@@ -198,12 +242,19 @@ async function build(payload) {
   const sources = files.filter(f => SOURCE_EXT.test(f.path));
   if (!sources.length) throw new Error('no source files (.c/.cc/.cpp/.cxx) in the project');
 
+  // Threading headers compile fine without -pthread and then fail at run time
+  // with an unhelpful exception, so say something before that happens.
+  if (!opts.threads && files.some(f => THREAD_HEADERS.test(f.content))) {
+    write('\x1b[93mwarning: this code uses threads but the "threads" box is not '
+      + 'ticked, so std::thread will throw at run time\x1b[0m\n\n');
+  }
+
   const incDirs = includeDirs(files);
   const objs = [];
   for (const src of sources) objs.push(await compile(src, opts, incDirs));
 
   const wasm = '/work/a.out.wasm';
-  await link(objs, wasm);
+  await link(objs, wasm, opts);
 
   const binary = fs.readFile(wasm);
   if (!binary) throw new Error('link produced no output');
@@ -211,16 +262,41 @@ async function build(payload) {
 
   const argv = ['a.out', ...splitArgs(payload.args)];
   log(`running${argv.length > 1 ? ' ' + argv.slice(1).join(' ') : ''}\n\n`);
+  const memory = opts.threads ? new WebAssembly.Memory({
+    initial: THREAD_INITIAL_PAGES, maximum: THREAD_MAX_PAGES, shared: true,
+  }) : null;
+
   const wasi = new WASI({
     fs,
+    memory,
     args: argv,
     env: { USER: 'you', HOME: '/work', PATH: '/bin' },
     stdout: write,
     stderr: write,
     stdin: makeStdin(stdin || ''),
   });
-  const instance = await WebAssembly.instantiate(module, wasi.imports);
-  const code = wasi.start(instance);
+
+  const imports = opts.threads
+    ? { ...wasi.imports, env: { memory }, wasi: { 'thread-spawn': spawnThread(module, memory) } }
+    : wasi.imports;
+
+  const instance = await WebAssembly.instantiate(module, imports);
+  let code;
+  try {
+    code = wasi.start(instance);
+  } catch (e) {
+    stopThreads();
+    // With standard wasm EH an uncaught C++ exception unwinds out of _start and
+    // arrives here as a WebAssembly.Exception, whose default text says nothing.
+    if (typeof WebAssembly.Exception === 'function' && e instanceof WebAssembly.Exception) {
+      const hint = opts.threads ? ''
+        : '\nIf it came from std::thread, tick the "threads" box and run again.';
+      throw new Error('the program threw a C++ exception that nothing caught'
+        + ' (std::terminate)' + hint);
+    }
+    throw e;
+  }
+  stopThreads();
   if (code !== 0) write(`\n\x1b[91mprogram exited with code ${code}\x1b[0m\n`);
   return code;
 }

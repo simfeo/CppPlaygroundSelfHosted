@@ -19,6 +19,8 @@ NATIVE="$WORK/build-native"
 CROSS="$WORK/build-wasm"
 RUNTIMES="$WORK/build-runtimes"
 RUNTIMES_INSTALL="$WORK/runtimes"
+RUNTIMES_THREADS="$WORK/build-runtimes-threads"
+RUNTIMES_THREADS_INSTALL="$WORK/runtimes-threads"
 OUT="$WORK/out"
 
 # Standard wasm exception handling, not the legacy opcodes.
@@ -88,48 +90,25 @@ mkdir -p "$SHIM"
 
 step "libc++ / libc++abi / libunwind with standard wasm exceptions"
 # wasi-sdk's prebuilt eh libraries still use the legacy EH opcodes, which
-# browsers refuse to mix with the standard ones clang 22 emits.
-if [ ! -f "$RUNTIMES_INSTALL/lib/libc++.a" ]; then
-    cmake -G Ninja -S "$SRC/runtimes" -B "$RUNTIMES" \
-        -DCMAKE_TOOLCHAIN_FILE="$SDK/share/cmake/wasi-sdk-p1.cmake" \
-        -DWASI_SDK_PREFIX="$SDK" \
-        -DCMAKE_SYSROOT="$SDK/share/wasi-sysroot" \
-        -DCMAKE_INSTALL_PREFIX="$RUNTIMES_INSTALL" \
-        -DCMAKE_BUILD_TYPE=MinSizeRel \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=OFF \
-        -DLLVM_ENABLE_RUNTIMES='libunwind;libcxxabi;libcxx' \
-        -DCMAKE_C_FLAGS="$EH_FLAGS" \
-        -DCMAKE_CXX_FLAGS="$EH_FLAGS" \
-        -DCMAKE_ASM_FLAGS="$EH_FLAGS" \
-        -DLIBCXX_ENABLE_SHARED=OFF \
-        -DLIBCXX_ENABLE_EXCEPTIONS=ON \
-        -DLIBCXX_ENABLE_FILESYSTEM=ON \
-        -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT=OFF \
-        -DLIBCXX_ENABLE_THREADS=ON \
-        -DLIBCXX_HAS_PTHREAD_API=ON \
-        -DLIBCXX_CXX_ABI=libcxxabi \
-        -DLIBCXX_ABI_VERSION=2 \
-        -DLIBCXX_INCLUDE_TESTS=OFF \
-        -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
-        -DLIBCXXABI_ENABLE_SHARED=OFF \
-        -DLIBCXXABI_ENABLE_EXCEPTIONS=ON \
-        -DLIBCXXABI_ENABLE_THREADS=ON \
-        -DLIBCXXABI_HAS_PTHREAD_API=ON \
-        -DLIBCXXABI_SILENT_TERMINATE=ON \
-        -DLIBCXXABI_USE_LLVM_UNWINDER=ON \
-        -DLIBUNWIND_ENABLE_SHARED=OFF \
-        -DLIBUNWIND_ENABLE_THREADS=ON \
-        -DLIBUNWIND_USE_COMPILER_RT=ON \
-        -DLIBUNWIND_INCLUDE_TESTS=OFF \
-        -DUNIX=ON
-    ninja -C "$RUNTIMES" -j "$JOBS" install
+# browsers refuse to mix with the standard ones clang 22 emits. Built twice:
+# once single-threaded, once with -pthread for std::thread support.
+build_runtimes() {
+    local target="$1" extra="$2" build_dir="$3" install_dir="$4" toolchain="$5"
+    [ -f "$install_dir/lib/libc++.a" ] && return 0
+
+    cmake -G Ninja -S "$SRC/runtimes" -B "$build_dir"         -DCMAKE_TOOLCHAIN_FILE="$toolchain"         -DWASI_SDK_PREFIX="$SDK"         -DCMAKE_SYSROOT="$SDK/share/wasi-sysroot"         -DCMAKE_INSTALL_PREFIX="$install_dir"         -DCMAKE_BUILD_TYPE=MinSizeRel         -DCMAKE_POSITION_INDEPENDENT_CODE=OFF         -DLLVM_ENABLE_RUNTIMES='libunwind;libcxxabi;libcxx'         -DCMAKE_C_FLAGS="$EH_FLAGS $extra"         -DCMAKE_CXX_FLAGS="$EH_FLAGS $extra"         -DCMAKE_ASM_FLAGS="$EH_FLAGS $extra"         -DLIBCXX_ENABLE_SHARED=OFF         -DLIBCXX_ENABLE_EXCEPTIONS=ON         -DLIBCXX_ENABLE_FILESYSTEM=ON         -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT=OFF         -DLIBCXX_ENABLE_THREADS=ON         -DLIBCXX_HAS_PTHREAD_API=ON         -DLIBCXX_CXX_ABI=libcxxabi         -DLIBCXX_ABI_VERSION=2         -DLIBCXX_INCLUDE_TESTS=OFF         -DLIBCXX_INCLUDE_BENCHMARKS=OFF         -DLIBCXXABI_ENABLE_SHARED=OFF         -DLIBCXXABI_ENABLE_EXCEPTIONS=ON         -DLIBCXXABI_ENABLE_THREADS=ON         -DLIBCXXABI_HAS_PTHREAD_API=ON         -DLIBCXXABI_SILENT_TERMINATE=ON         -DLIBCXXABI_USE_LLVM_UNWINDER=ON         -DLIBUNWIND_ENABLE_SHARED=OFF         -DLIBUNWIND_ENABLE_THREADS=ON         -DLIBUNWIND_USE_COMPILER_RT=ON         -DLIBUNWIND_INCLUDE_TESTS=OFF         -DUNIX=ON
+    ninja -C "$build_dir" -j "$JOBS" install
 
     # See wasi-shim/eh_tag.s: with standard EH nothing defines __cpp_exception.
-    "$SDK/bin/clang" --target=wasm32-wasip1 -c \
-        -o "$RUNTIMES_INSTALL/lib/eh_tag.o" "$SHIM_SRC/eh_tag.s"
-    "$SDK/bin/llvm-ar" r "$RUNTIMES_INSTALL/lib/libunwind.a" \
-        "$RUNTIMES_INSTALL/lib/eh_tag.o"
-fi
+    "$SDK/bin/clang" --target="$target" $extra -c         -o "$install_dir/lib/eh_tag.o" "$SHIM_SRC/eh_tag.s"
+    "$SDK/bin/llvm-ar" r "$install_dir/lib/libunwind.a" "$install_dir/lib/eh_tag.o"
+}
+
+TOOLCHAIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+build_runtimes wasm32-wasip1 "" "$RUNTIMES" "$RUNTIMES_INSTALL" \
+    "$SDK/share/cmake/wasi-sdk-p1.cmake"
+build_runtimes wasm32-wasip1-threads "-pthread" "$RUNTIMES_THREADS" "$RUNTIMES_THREADS_INSTALL" \
+    "$TOOLCHAIN_DIR/wasi-sdk-p1-threads.cmake"
 
 step "cross-build clang + lld for wasm32-wasi"
 export WASI_SDK_PREFIX="$SDK"

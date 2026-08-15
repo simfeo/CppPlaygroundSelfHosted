@@ -1,0 +1,6 @@
+# Shell scripts, patches and grammar queries must keep LF endings:
+# CRLF breaks bash ("set: pipefail: invalid option name") and patch context.
+*.sh text eol=lf
+*.scm text eol=lf
+*.s text eol=lf
+*.patch -text

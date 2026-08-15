@@ -20,6 +20,16 @@
   const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
   const FDFLAGS = { APPEND: 1 };
 
+  /* TextDecoder rejects views backed by a SharedArrayBuffer, which is exactly
+   * what a threaded program's memory is - so copy out of shared memory first. */
+  const DECODER = new TextDecoder('utf-8');
+
+  function decodeBytes(bytes) {
+    const shared = typeof SharedArrayBuffer === 'function'
+      && bytes.buffer instanceof SharedArrayBuffer;
+    return DECODER.decode(shared ? bytes.slice() : bytes);
+  }
+
   class ProcExit extends Error {
     constructor(code) { super(`exited with code ${code}`); this.code = code; }
   }
@@ -127,6 +137,7 @@
     // options: {fs, args, env, stdout, stderr, stdin}
     constructor(options) {
       this.fs = options.fs || new MemFS();
+      this.importedMemory = options.memory || null;
       this.args = options.args || ['program'];
       this.env = options.env || {};
       this.onStdout = options.stdout || (() => { });
@@ -158,11 +169,19 @@
 
     /* --- memory helpers --- */
 
+    get memory() {
+      // With threads the memory is imported and shared; otherwise the module
+      // defines and exports its own.
+      return this.importedMemory || this.instance.exports.memory;
+    }
+
     get view() {
-      // The module's memory can be detached by growth; re-read each time.
-      const buffer = this.instance.exports.memory.buffer;
-      if (this._buffer !== buffer) {
+      const buffer = this.memory.buffer;
+      // Plain memory is replaced on growth, but a SharedArrayBuffer grows in
+      // place and keeps its identity - so the length has to be checked too.
+      if (this._buffer !== buffer || this._byteLength !== buffer.byteLength) {
         this._buffer = buffer;
+        this._byteLength = buffer.byteLength;
         this._view = new DataView(buffer);
         this._u8 = new Uint8Array(buffer);
       }
@@ -171,7 +190,7 @@
     get u8() { this.view; return this._u8; }
 
     readString(ptr, len) {
-      return new TextDecoder('utf-8').decode(this.u8.subarray(ptr, ptr + len));
+      return decodeBytes(this.u8.subarray(ptr, ptr + len));
     }
 
     /* Tops up the stdin buffer from the live source when it runs dry. */
@@ -290,7 +309,11 @@
         },
 
         random_get(ptr, len) {
-          crypto.getRandomValues(self_.u8.subarray(ptr, ptr + len));
+          // crypto refuses to write into a view of shared memory, so fill a
+          // private buffer and copy it across.
+          const bytes = new Uint8Array(len);
+          crypto.getRandomValues(bytes);
+          self_.u8.set(bytes, ptr);
           return ok;
         },
 
@@ -396,7 +419,7 @@
           for (const buf of self_.iovs(iovsPtr, iovsLen)) {
             if (desc instanceof StdioDesc) {
               if (desc.kind === 'stdin') return E.BADF;
-              desc.io(new TextDecoder('utf-8').decode(buf));
+              desc.io(decodeBytes(buf));
             } else {
               const node = desc.node;
               const at = desc.append ? node.data.length : desc.offset;
@@ -594,10 +617,19 @@
 
     /* --- running --- */
 
+    /* Binds an instance without running it - used by spawned threads, which
+     * enter through wasi_thread_start rather than _start. */
+    attach(instance) {
+      this.instance = instance;
+      this._buffer = null;
+      this._byteLength = -1;
+    }
+
     // Returns the process exit code (0 on a clean _start return).
     start(instance) {
       this.instance = instance;
       this._buffer = null;
+      this._byteLength = -1;
       try {
         instance.exports._start();
         return 0;

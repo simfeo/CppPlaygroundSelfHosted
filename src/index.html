@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>C++ Playground</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -27,6 +29,14 @@
         <option value="2" selected>-O2</option>
         <option value="3">-O3</option>
         <option value="s">-Os</option>
+      </select>
+    </label>
+    <label title="Build with -pthread. Auto turns it on when the code uses threads">
+      threads
+      <select id="selThreads">
+        <option value="auto">auto</option>
+        <option value="on">on</option>
+        <option value="off">off</option>
       </select>
     </label>
     <label class="grow">flags

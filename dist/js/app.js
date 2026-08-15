@@ -9,6 +9,7 @@
     std: 'c++17',
     opt: '2',
     flags: '',
+    threads: 'auto',
     args: '',
     stdin: '',
     active: 'main.cpp',
@@ -49,6 +50,7 @@ inline std::string greeting(const std::string& who) {
     prompt: $('prompt'), liveInput: $('liveInput'), args: $('txtArgs'),
     stdinNote: $('stdinNote'),
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
+    threads: $('selThreads'),
     status: $('status'),
   };
 
@@ -382,6 +384,7 @@ inline std::string greeting(const std::string& who) {
       worker.terminate();
       worker = null;
     }
+    stopThreadWorkers();
     running = false;
     el.run.disabled = false;
     el.stop.disabled = true;
@@ -389,6 +392,33 @@ inline std::string greeting(const std::string& who) {
     setRunningInputs(false);
     appendOutput('\n\x1b[91mstopped\x1b[0m\n');
     setStatus('stopped', 'err');
+  }
+
+  /* Threads. The run worker blocks in Atomics.wait whenever the program joins,
+   * so it cannot host its own threads: the page creates them, and their output
+   * reaches the console immediately instead of after the join returns. */
+  let threadWorkers = [];
+
+  function spawnThreadWorker(data) {
+    const worker = new Worker('js/thread-worker.js');
+    worker.onmessage = event => {
+      const msg = event.data;
+      if (msg.id === 'write') appendOutput(msg.data);
+      else if (msg.id === 'thread-spawn') spawnThreadWorker(msg.data);
+      else if (msg.id === 'thread-exit') {
+        threadWorkers = threadWorkers.filter(w => w !== worker);
+      }
+    };
+    worker.onerror = e => appendOutput(`
+[91mthread failed: ${e.message}[0m
+`);
+    threadWorkers.push(worker);
+    worker.postMessage(data);
+  }
+
+  function stopThreadWorkers() {
+    for (const worker of threadWorkers) worker.terminate();
+    threadWorkers = [];
   }
 
   function ensureWorker() {
@@ -401,10 +431,15 @@ inline std::string greeting(const std::string& who) {
         appendOutput(data);
       } else if (id === 'stdin-request') {
         showPrompt(true);
+      } else if (id === 'thread-spawn') {
+        spawnThreadWorker(data);
+      } else if (id === 'threads-done') {
+        stopThreadWorkers();
       } else if (id === 'done') {
         running = false;
         el.run.disabled = false;
         el.stop.disabled = true;
+        stopThreadWorkers();
         showPrompt(false);
         setRunningInputs(false);
         if (data.ok) {
@@ -448,15 +483,33 @@ inline std::string greeting(const std::string& who) {
         files: state.files.map(f => ({ path: f.path, content: f.content })),
         stdin: state.stdin,
         args: state.args,
-        options: { std: state.std, opt: state.opt, flags: state.flags },
+        options: { std: state.std, opt: state.opt, flags: state.flags, threads: useThreads() },
       }
     });
+  }
+
+  // Threading needs a different target and libc++, costs ~12% binary size and
+  // makes single-threaded code pay for atomics - so "auto" only turns it on when
+  // the code actually uses threads. It also needs shared memory, which a page
+  // that is not cross-origin isolated cannot hand to a worker at all.
+  const THREAD_CODE = /#\s*include\s*[<"](thread|future|shared_mutex|stop_token|pthread\.h)[>"]|std::(thread|jthread|async)/;
+
+  function useThreads() {
+    if (state.threads === 'off') return false;
+    const wanted = state.threads === 'on'
+      || state.files.some(f => THREAD_CODE.test(f.content));
+    if (wanted && !crossOriginIsolated) {
+      appendOutput('\x1b[93mwarning: threads need a cross-origin isolated server (serve.py sends the required headers); building without them\x1b[0m\n\n');
+      return false;
+    }
+    return wanted;
   }
 
   function collectOptions() {
     state.std = el.std.value;
     state.opt = el.opt.value;
     state.flags = el.flags.value;
+    state.threads = el.threads.value;
     state.args = el.args.value;
     state.stdin = el.stdin.value;
     state.project = el.project.value.trim() || 'playground';
@@ -503,7 +556,7 @@ inline std::string greeting(const std::string& who) {
     save();
     init();
   };
-  for (const node of [el.std, el.opt, el.flags, el.args, el.stdin, el.project]) {
+  for (const node of [el.std, el.opt, el.flags, el.threads, el.args, el.stdin, el.project]) {
     node.addEventListener('change', () => { collectOptions(); save(); });
   }
 
@@ -511,6 +564,7 @@ inline std::string greeting(const std::string& who) {
     el.std.value = state.std;
     el.opt.value = state.opt;
     el.flags.value = state.flags;
+    el.threads.value = ['auto', 'on', 'off'].includes(state.threads) ? state.threads : 'auto';
     el.args.value = state.args || '';
     el.stdin.value = state.stdin;
     el.project.value = state.project;

@@ -28,6 +28,9 @@ offline once loaded.
 - Full C++ standard library: libc++ built from the same LLVM release
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
+- **Threads**: `std::thread` runs on real Web Workers sharing one memory, with
+  working mutexes and atomics. The *threads* selector defaults to *auto*, which
+  builds with `-pthread` only when the code uses threads
 - Interactive stdin: programs block on `std::cin` and you type into the console,
   with Ctrl+D for end of input; the *Program input* box preloads text before that
 - Command line arguments, quoted like a shell (`--flag "two words"`)
@@ -124,6 +127,7 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   js/wasi.js         WASI preview1 host with an in-memory filesystem
   js/tar.js          tar reader + gzip inflate
   js/panels.js       draggable splitters between the panes
+  js/thread-worker.js  one spawned thread of a wasi-threads program
   js/stdin-channel.js  blocking stdin handoff to the worker
   js/zip.js          minimal store-only ZIP writer
   js/cmake.js        CMakeLists.txt / README generator for exports
@@ -165,8 +169,15 @@ cmake --build build --config Release
   worker for input requires SharedArrayBuffer. `serve.py` sends the necessary
   COOP/COEP headers; on a server that does not, the playground says so and falls
   back to the preloaded input box.
-- **No threads, no networking** in compiled programs (single-threaded WASI
-  sandbox with an in-memory filesystem).
+- **Threads need a cross-origin isolated server**: shared memory cannot be handed
+  to a worker without it (`DataCloneError`), so on a plain static host the
+  playground says so and builds single-threaded. They are not on by default
+  because they also cost ~12% binary size and make single-threaded code pay for
+  atomic refcounts, so *auto* enables them only for code that uses them.
+  A spawned thread can write to stdout but cannot touch the in-memory
+  filesystem: that lives in the run worker's heap and does not cross workers.
+  `std::thread::hardware_concurrency()` reports 1, which is what wasi-libc says.
+- **No networking** in compiled programs.
 - Exceptions need a browser with the standardized wasm EH proposal (Chrome 95+,
   Firefox 131+, Safari 18.4+).
 - The generated `CMakeLists.txt` targets a native compiler, not the in-browser

@@ -71,6 +71,7 @@ body { display: flex; flex-direction: column; }
 .brand { font-weight: 600; letter-spacing: .3px; margin-right: 4px; }
 .sep { width: 1px; align-self: stretch; background: var(--border); }
 #toolbar label { display: flex; align-items: center; gap: 4px; color: var(--fg-dim); }
+#toolbar input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
 #toolbar label.grow { flex: 1; min-width: 120px; }
 #toolbar label.grow input { flex: 1; }
 
