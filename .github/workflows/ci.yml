@@ -18,10 +18,14 @@ jobs:
 
       - name: JavaScript parses
         run: |
-          for f in src/js/*.js src/coi.js; do
+          shopt -s nullglob
+          files=(src/js/*.js)
+          test ${#files[@]} -gt 0 || { echo "::error::no JavaScript files found"; exit 1; }
+          for f in "${files[@]}"; do
+            echo "  checking $f"
             node --check "$f" || exit 1
           done
-          echo "all JavaScript files parse"
+          echo "${#files[@]} JavaScript files parse"
 
       - name: Python tools compile
         run: python -m compileall -q tools serve.py
