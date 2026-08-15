@@ -55,7 +55,7 @@ inline std::string greeting(const std::string& who) {
 
   /* ---------- editor ---------- */
 
-  const THEME_DARK = 'ace/theme/one_dark';
+  const THEME_DARK = 'ace/theme/vscode_dark';
   const editor = ace.edit(el.editor, {
     theme: THEME_DARK,
     fontSize: 13,
@@ -93,11 +93,46 @@ inline std::string greeting(const std::string& who) {
         if (!current) return;
         current.content = session.getValue();
         save();
+        scheduleHighlight(session);
       });
       sessions.set(f.path, session);
+      applyHighlighter(session);
     }
     return session;
   }
+
+  /* ---------- tree-sitter highlighting ---------- */
+
+  // Ace's regex mode is the fallback; once tree-sitter has loaded it takes over
+  // the tokenizer, which is what tells types, calls and members apart.
+  let highlightTimer = null;
+
+  function isCpp(session) {
+    return session.getMode().$id === 'ace/mode/c_cpp';
+  }
+
+  function applyHighlighter(session) {
+    const hl = window.cppHighlighter;
+    if (!hl || !isCpp(session)) return;
+    hl.update(session.getValue());
+    session.bgTokenizer.setTokenizer(hl.tokenizer());
+    session.bgTokenizer.start(0);
+  }
+
+  function scheduleHighlight(session) {
+    if (!window.cppHighlighter || !isCpp(session)) return;
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => {
+      window.cppHighlighter.update(session.getValue());
+      session.bgTokenizer.start(0);
+    }, 20);
+  }
+
+  window.addEventListener('cpp-highlighter-ready', () => {
+    for (const session of sessions.values()) applyHighlighter(session);
+    // The visible session needs re-tokenizing against the new tokenizer.
+    applyHighlighter(editor.getSession());
+  });
 
   function load() {
     try {

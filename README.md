@@ -21,7 +21,8 @@ offline once loaded.
 ## Features
 
 - **Clang 22.1.8** targeting `wasm32-wasip1`, built from source (see below)
-- C++ syntax highlighting, bracket matching and auto-indent (Ace editor)
+- C++ syntax highlighting from a real parser (Tree-sitter), in VS Code's
+  Dark+ colours: types, calls, members, parameters and macros are distinguished
 - Multi-file projects (sources + headers, subdirectories supported)
 - `-std=c++11/14/17/20`, `-O0..-O3/-Os`, plus free-form extra flags
 - Full C++ standard library: libc++ built from the same LLVM release
@@ -119,7 +120,11 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   js/tar.js          tar reader + gzip inflate
   js/zip.js          minimal store-only ZIP writer
   js/cmake.js        CMakeLists.txt / README generator for exports
+  js/ts-highlight.js Tree-sitter highlighting, plugged into Ace's tokenizer
+  js/ace-theme-vscode.js  VS Code Dark+ theme for Ace (ours)
+  queries/           our highlight query refinements
   vendor/ace/        vendored Ace editor (BSD-3, see its README)
+  vendor/tree-sitter/  vendored parser + C/C++ grammar (MIT, see its README)
 tools/
   build.py           copies src/ into dist/
   pack_sysroot.py    builds sysroot.tar.gz
@@ -163,7 +168,8 @@ cmake --build build --config Release
 ## Licenses
 
 The Ace editor (`src/vendor/ace/`) is BSD-3-Clause, Copyright (c) 2010 Ajax.org
-B.V.; its license is retained verbatim alongside the files.
+B.V. Tree-sitter and the C/C++ grammars (`src/vendor/tree-sitter/`) are MIT.
+All their licenses are retained verbatim alongside the files.
 
 Clang, LLD, libc++ and libunwind are Apache-2.0 with the LLVM exception. The
 wasi-sysroot components are from wasi-sdk (Apache-2.0 / MIT). Everything under
