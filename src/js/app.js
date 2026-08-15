@@ -44,7 +44,7 @@ inline std::string greeting(const std::string& who) {
   const el = {
     run: $('btnRun'), zip: $('btnZip'), reset: $('btnReset'), clear: $('btnClear'),
     newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'),
-    editor: $('editor'), gutter: $('gutter'), console: $('console'), stdin: $('stdin'),
+    editor: $('editor'), console: $('console'), stdin: $('stdin'),
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
     status: $('status'),
   };
@@ -52,6 +52,52 @@ inline std::string greeting(const std::string& who) {
   let state = load();
   let worker = null;
   let running = false;
+
+  /* ---------- editor ---------- */
+
+  const THEME_DARK = 'ace/theme/one_dark';
+  const editor = ace.edit(el.editor, {
+    theme: THEME_DARK,
+    fontSize: 13,
+    tabSize: 4,
+    useSoftTabs: true,
+    showPrintMargin: false,
+    highlightActiveLine: true,
+    enableAutoIndent: true,
+    scrollPastEnd: 0.3,
+  });
+  editor.commands.addCommand({
+    name: 'run',
+    bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
+    exec: () => run(),
+  });
+
+  // One session per file keeps undo history, cursor and scroll position
+  // separate as you switch tabs.
+  const sessions = new Map();
+
+  function modeFor(path) {
+    return /\.(c|cc|cpp|cxx|c\+\+|h|hh|hpp|hxx|inc)$/i.test(path)
+      ? 'ace/mode/c_cpp'
+      : 'ace/mode/text';
+  }
+
+  function sessionFor(f) {
+    let session = sessions.get(f.path);
+    if (!session) {
+      session = ace.createEditSession(f.content, modeFor(f.path));
+      session.setUseSoftTabs(true);
+      session.setTabSize(4);
+      session.on('change', () => {
+        const current = file(f.path);
+        if (!current) return;
+        current.content = session.getValue();
+        save();
+      });
+      sessions.set(f.path, session);
+    }
+    return session;
+  }
 
   function load() {
     try {
@@ -111,24 +157,14 @@ inline std::string greeting(const std::string& who) {
       el.tabs.appendChild(tab);
     }
 
-    el.editor.value = active.content;
-    renderGutter();
-  }
-
-  function renderGutter() {
-    const lines = el.editor.value.split('\n').length;
-    let s = '';
-    for (let i = 1; i <= lines; i++) s += i + '\n';
-    el.gutter.textContent = s;
-    el.gutter.scrollTop = el.editor.scrollTop;
+    editor.setSession(sessionFor(active));
   }
 
   function selectFile(path) {
-    activeFile().content = el.editor.value;
     state.active = path;
     save();
     renderFiles();
-    el.editor.focus();
+    editor.focus();
   }
 
   function newFile() {
@@ -137,7 +173,6 @@ inline std::string greeting(const std::string& who) {
     const clean = path.trim().replace(/^[./\\]+/, '').replace(/\\/g, '/');
     if (!clean) return;
     if (file(clean)) { alert('A file with that path already exists.'); return; }
-    activeFile().content = el.editor.value;
     state.files.push({ path: clean, content: '' });
     state.active = clean;
     save();
@@ -150,9 +185,10 @@ inline std::string greeting(const std::string& who) {
     const clean = next.trim().replace(/^[./\\]+/, '').replace(/\\/g, '/');
     if (!clean || clean === path) return;
     if (file(clean)) { alert('A file with that path already exists.'); return; }
-    activeFile().content = el.editor.value;
     file(path).path = clean;
     if (state.active === path) state.active = clean;
+    // Drop the old session: it is keyed by path and its mode may no longer fit.
+    sessions.delete(path);
     save();
     renderFiles();
   }
@@ -161,6 +197,7 @@ inline std::string greeting(const std::string& who) {
     if (state.files.length === 1) { alert('The project needs at least one file.'); return; }
     if (!confirm(`Delete ${path}?`)) return;
     state.files = state.files.filter(f => f.path !== path);
+    sessions.delete(path);
     if (state.active === path) state.active = state.files[0].path;
     save();
     renderFiles();
@@ -251,7 +288,6 @@ inline std::string greeting(const std::string& who) {
 
   function run() {
     if (running) return;
-    activeFile().content = el.editor.value;
     collectOptions();
     save();
 
@@ -281,7 +317,6 @@ inline std::string greeting(const std::string& who) {
   /* ---------- export ---------- */
 
   function downloadZip() {
-    activeFile().content = el.editor.value;
     collectOptions();
     save();
 
@@ -302,21 +337,7 @@ inline std::string greeting(const std::string& who) {
 
   /* ---------- wiring ---------- */
 
-  el.editor.addEventListener('input', () => {
-    activeFile().content = el.editor.value;
-    renderGutter();
-    save();
-  });
-  el.editor.addEventListener('scroll', () => { el.gutter.scrollTop = el.editor.scrollTop; });
-  el.editor.addEventListener('keydown', e => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const start = el.editor.selectionStart, end = el.editor.selectionEnd;
-      el.editor.setRangeText('    ', start, end, 'end');
-      el.editor.dispatchEvent(new Event('input'));
-    }
-  });
-
+  // Ace handles Ctrl+Enter itself; this covers the rest of the page.
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
   });
@@ -328,6 +349,7 @@ inline std::string greeting(const std::string& who) {
   el.reset.onclick = () => {
     if (!confirm('Discard the current project and restore the example?')) return;
     state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+    sessions.clear();
     save();
     init();
   };
@@ -344,6 +366,13 @@ inline std::string greeting(const std::string& who) {
     renderFiles();
     setStatus('idle');
   }
+
+  // Ace measures its container on construction, before the flex layout has
+  // settled, and renders a single line until told otherwise. A ResizeObserver
+  // also covers panes resizing and tabs that start in the background, where
+  // requestAnimationFrame never fires.
+  new ResizeObserver(() => editor.resize()).observe(el.editor);
+  window.addEventListener('resize', () => editor.resize());
 
   init();
 })();

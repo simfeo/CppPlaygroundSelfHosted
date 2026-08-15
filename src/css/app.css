@@ -124,28 +124,12 @@ kbd { font: 11px var(--mono); opacity: .7; }
 #tabs .tab.active { background: var(--bg); color: var(--fg); box-shadow: inset 0 2px 0 var(--accent); }
 
 /* Editor */
-.editor-wrap { flex: 1; display: flex; min-height: 0; background: var(--bg); }
-#gutter {
-  flex: none;
-  padding: 8px 6px 8px 10px;
-  text-align: right;
-  color: #5c6066;
-  font: 13px/1.5 var(--mono);
-  user-select: none;
-  overflow: hidden;
-  white-space: pre;
-}
 #editor {
   flex: 1;
-  border: none;
-  border-radius: 0;
-  background: var(--bg);
-  padding: 8px;
-  resize: none;
-  font: 13px/1.5 var(--mono);
-  outline: none;
-  tab-size: 4;
+  min-height: 0;
+  width: 100%;
 }
+.ace_editor { font-family: var(--mono); line-height: 1.5; }
 
 /* Console */
 #console {

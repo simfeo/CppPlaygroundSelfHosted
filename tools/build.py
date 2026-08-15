@@ -53,14 +53,16 @@ def main():
                      "Build them with tools/toolchain/build_wasm_clang.sh and "
                      "tools/pack_sysroot.py.")
 
-    # Replace the app files without touching vendor/ - those binaries are large,
-    # come from a separate build, and are what makes a fresh clone runnable.
+    # Replace the app files. dist/vendor/ is merged rather than replaced: it holds
+    # both src/vendor/ (third-party JS) and the compiler binaries, which come from
+    # a separate build and are what make a fresh clone runnable.
     for name in os.listdir(src):
         source = os.path.join(src, name)
         target = os.path.join(out, name)
         if os.path.isdir(source):
-            shutil.rmtree(target, ignore_errors=True)
-            shutil.copytree(source, target)
+            if name != "vendor":
+                shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(source, target, dirs_exist_ok=True)
         else:
             os.makedirs(out, exist_ok=True)
             shutil.copyfile(source, target)
