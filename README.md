@@ -1,19 +1,34 @@
 # C++ Playground (self-hosted)
 
+[![CI](https://github.com/simfeo/CppPlaygroundSelfHosted/actions/workflows/ci.yml/badge.svg)](https://github.com/simfeo/CppPlaygroundSelfHosted/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/simfeo/CppPlaygroundSelfHosted?sort=semver)](https://github.com/simfeo/CppPlaygroundSelfHosted/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![clang](https://img.shields.io/badge/clang-22.1.8-orange)](tools/toolchain/build_wasm_clang.sh)
+
 A cpp.sh-style C++ playground that runs entirely in the browser. **Clang 22 and
 wasm-ld are WebAssembly binaries**; your code is compiled, linked and executed on
 the client. No server-side compiler, no network calls, no accounts.
 
 ## Quick start
 
+Download the [latest release](https://github.com/simfeo/CppPlaygroundSelfHosted/releases/latest),
+unpack it, and run the server:
+
 ```bash
-git clone <this repo> && cd CppCompilerSelfhosted
+python serve.py
+```
+
+Or from a clone, which is the same thing plus the sources:
+
+```bash
+git clone https://github.com/simfeo/CppPlaygroundSelfHosted
+cd CppPlaygroundSelfHosted
 python serve.py
 ```
 
 Open <http://localhost:8080/>. That is all — no build step, no compiler, no
 dependencies beyond Python 3. The prebuilt toolchain ships in `dist/vendor/`,
-so a clone is immediately runnable (and is therefore ~34 MB).
+so a clone is immediately runnable (and is therefore ~45 MB).
 
 To deploy it somewhere else, copy `dist/` onto any static web server. It works
 offline once loaded.
@@ -54,10 +69,18 @@ The server never sees or compiles your code. It hands over files and goes back
 to sleep; clang runs in your browser, and the page keeps working if you kill the
 network after it loads.
 
-`serve.py` also sends `Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: require-corp`, so the page is cross-origin
-isolated and `SharedArrayBuffer` is available. Nothing needs it yet; interactive
-stdin and threads would. A plain `python -m http.server` works too, minus that.
+### Cross-origin isolation
+
+Interactive stdin and `std::thread` both need `SharedArrayBuffer`, which needs
+the page to be cross-origin isolated, which needs two response headers.
+`serve.py` sends them:
+
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Embedder-Policy: require-corp
+
+Static hosts usually do not. Serve `dist/` from something that sends them, or
+the playground will say so and fall back to the preloaded input box,
+single-threaded — everything else still works.
 
 ## Developing
 
@@ -118,6 +141,7 @@ in C, hence three lines of assembly, archived into our `libunwind.a`.
 
 ```
 serve.py             static server with COOP/COEP — run this to use the app
+.github/workflows/   CI and release packaging
 dist/                committed, runnable output: the app + vendor/ toolchain
 src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   index.html

@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Package the playground
+        # Everything needed to run it: the built app and the server, nothing else.
+        run: |
+          name="cpp-playground-${{ steps.version.outputs.tag }}"
+          mkdir -p "package/$name"
+          cp -r dist "package/$name/dist"
+          cp serve.py README.md LICENSE "package/$name/"
+          cd package
+          zip -qr "../$name.zip" "$name"
+          tar czf "../$name.tar.gz" "$name"
+          cd ..
+          sha256sum "$name.zip" "$name.tar.gz" > checksums.txt
+          ls -la "$name.zip" "$name.tar.gz"
+          cat checksums.txt
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            cpp-playground-${{ steps.version.outputs.tag }}.zip
+            cpp-playground-${{ steps.version.outputs.tag }}.tar.gz
+            checksums.txt
+          body: |
+            A C++ playground that compiles and runs in the browser: clang 22.1.8
+            built for `wasm32-wasi`, with libc++, threads and exceptions.
+
+            **To run it**
+
+            ```
+            unzip cpp-playground-${{ steps.version.outputs.tag }}.zip
+            cd cpp-playground-${{ steps.version.outputs.tag }}
+            python serve.py
+            ```
+
+            Then open <http://localhost:8080/>. Nothing is installed and nothing
+            is compiled on the server - clang runs in your browser.

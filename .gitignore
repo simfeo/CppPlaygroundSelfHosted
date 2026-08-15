@@ -1,1 +1,3 @@
 # dist/ is committed: a clone must be runnable without a build.
+__pycache__/
+*.pyc

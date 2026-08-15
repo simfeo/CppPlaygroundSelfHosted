@@ -33,7 +33,7 @@ class HtmlHandler(http.server.BaseHTTPRequestHandler):
             return "application/wasm"
         return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
-    def send_binary_file(self, path):
+    def send_binary_file(self, path, body=True):
         candidate = os.path.abspath(os.path.join(self.html_dir, path))
         if not candidate.startswith(self.html_dir) or not os.path.isfile(candidate):
             self.send_error(404)
@@ -47,9 +47,17 @@ class HtmlHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(data)
+        if body:
+            self.wfile.write(data)
 
     def do_GET(self):
+        self.serve(body=True)
+
+    def do_HEAD(self):
+        # Same headers, no body - health checks and curl -I use this.
+        self.serve(body=False)
+
+    def serve(self, body):
         path = self.path.split("?", 1)[0]
         if path in ("/exit", "/exit/"):
             self.send_response(200)
@@ -57,9 +65,9 @@ class HtmlHandler(http.server.BaseHTTPRequestHandler):
             self.server.shutdown()
             sys.exit()
         elif path == "/":
-            self.send_binary_file("index.html")
+            self.send_binary_file("index.html", body)
         else:
-            self.send_binary_file(path.lstrip("/"))
+            self.send_binary_file(path.lstrip("/"), body)
 
     def log_message(self, fmt, *args):
         if self.server.verbose:

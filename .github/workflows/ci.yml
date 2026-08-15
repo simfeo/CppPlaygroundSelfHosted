@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript parses
+        run: |
+          for f in src/js/*.js src/coi.js; do
+            node --check "$f" || exit 1
+          done
+          echo "all JavaScript files parse"
+
+      - name: Python tools compile
+        run: python -m compileall -q tools serve.py
+
+      - name: dist/ is up to date with src/
+        # dist/ is committed so a clone runs without a build; this catches the
+        # easy mistake of editing src/ and forgetting to rebuild.
+        run: |
+          python tools/build.py
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/ is stale - run 'python tools/build.py' and commit the result"
+            git diff --stat -- dist
+            exit 1
+          fi
+          echo "dist/ matches src/"
+
+      - name: Toolchain assets present
+        run: |
+          for f in clang.wasm.gz wasm-ld.wasm.gz sysroot.tar.gz; do
+            test -s "dist/vendor/$f" || { echo "::error::missing dist/vendor/$f"; exit 1; }
+          done
+          du -sh dist
+
+      - name: Server starts and serves the app
+        run: |
+          python serve.py -p 8080 &
+          for i in $(seq 1 20); do curl -sf -o /dev/null http://localhost:8080/ && break; sleep 0.5; done
+          curl -sf -o /dev/null http://localhost:8080/ || { echo "::error::index did not load"; exit 1; }
+          curl -sf -o /dev/null http://localhost:8080/vendor/clang.wasm.gz || exit 1
+          curl -sI http://localhost:8080/ | grep -qi 'cross-origin-opener-policy: same-origin' \
+            || { echo "::error::COOP header missing"; exit 1; }
+          curl -sI http://localhost:8080/ | grep -qi 'cross-origin-embedder-policy: require-corp' \
+            || { echo "::error::COEP header missing"; exit 1; }
+          echo "server serves the app with isolation headers"
