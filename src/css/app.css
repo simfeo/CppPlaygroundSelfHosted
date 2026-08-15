@@ -91,8 +91,23 @@ kbd { font: 11px var(--mono); opacity: .7; }
 
 /* Layout */
 #main { flex: 1; display: flex; min-height: 0; }
+
+/* Drag handles between the panes */
+.splitter {
+  flex: none;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background .15s;
+}
+.splitter.horizontal { width: auto; height: 5px; cursor: row-resize; }
+.splitter:hover, body.dragging .splitter { background: var(--accent); }
+body.dragging { cursor: col-resize; user-select: none; }
+body.dragging-y { cursor: row-resize; user-select: none; }
+body.dragging iframe, body.dragging #editor { pointer-events: none; }
 #sidebar {
   width: 200px;
+  min-width: 0;
   flex: none;
   background: var(--bg2);
   border-right: 1px solid var(--border);
@@ -181,7 +196,9 @@ kbd { font: 11px var(--mono); opacity: .7; }
   min-height: 0;
 }
 #stdin:disabled { opacity: .5; }
-#stdin { height: 90px; flex: none; border: none; border-radius: 0; background: var(--console-bg); color: var(--fg); font: 12px/1.45 var(--mono); resize: vertical; }
+#ioBottom { display: flex; flex-direction: column; flex: none; height: 160px; min-height: 60px; overflow: hidden; }
+#ioBottom .pad { flex: none; }
+#stdin { flex: 1; min-height: 30px; flex: none; border: none; border-radius: 0; background: var(--console-bg); color: var(--fg); font: 12px/1.45 var(--mono); resize: none; }
 
 /* Live input line, shown only while a program is blocked on stdin */
 #prompt {

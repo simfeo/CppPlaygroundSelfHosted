@@ -10,6 +10,7 @@
   <header id="toolbar">
     <span class="brand">C++ Playground</span>
     <button id="btnRun" class="primary">▶ Run <kbd>Ctrl+↵</kbd></button>
+    <button id="btnStop" disabled title="Terminate the running program">■ Stop</button>
     <span class="sep"></span>
     <label>std
       <select id="selStd">
@@ -57,12 +58,14 @@
         <input id="txtProject" type="text" spellcheck="false" title="Project name (used for CMake target and zip name)">
       </div>
     </nav>
+    <div class="splitter" id="splitLeft" title="Drag to resize, double-click to reset"></div>
 
     <section id="editorPane">
       <div id="tabs"></div>
       <div id="editor"></div>
     </section>
 
+    <div class="splitter" id="splitRight" title="Drag to resize, double-click to reset"></div>
     <section id="ioPane">
       <div class="panel-head">
         <span>Output</span>
@@ -75,13 +78,16 @@
         <input id="liveInput" spellcheck="false" autocomplete="off"
                placeholder="the program is waiting — type, then Enter (Ctrl+D ends input)">
       </div>
-      <div class="panel-head"><span>Arguments</span></div>
-      <div class="pad">
-        <input id="txtArgs" type="text" spellcheck="false"
-               placeholder="argv, e.g. --verbose &quot;file name.txt&quot;">
+      <div class="splitter horizontal" id="splitBottom" title="Drag to resize, double-click to reset"></div>
+      <div id="ioBottom">
+        <div class="panel-head"><span>Arguments</span></div>
+        <div class="pad">
+          <input id="txtArgs" type="text" spellcheck="false"
+                 placeholder="argv, e.g. --verbose &quot;file name.txt&quot;">
+        </div>
+        <div class="panel-head"><span>Program input (stdin)</span><span id="stdinNote" class="note"></span></div>
+        <textarea id="stdin" spellcheck="false" placeholder="Sent before any typing. Leave empty to type everything live."></textarea>
       </div>
-      <div class="panel-head"><span>Program input (stdin)</span><span id="stdinNote" class="note"></span></div>
-      <textarea id="stdin" spellcheck="false" placeholder="Sent before any typing. Leave empty to type everything live."></textarea>
     </section>
   </main>
 
@@ -89,6 +95,7 @@
   <script src="vendor/ace/mode-c_cpp.js"></script>
   <script src="js/ace-theme-vscode.js"></script>
   <script src="js/stdin-channel.js"></script>
+  <script src="js/panels.js"></script>
   <script src="js/zip.js"></script>
   <script src="js/cmake.js"></script>
   <script src="js/app.js"></script>

@@ -43,7 +43,7 @@ inline std::string greeting(const std::string& who) {
 
   const $ = id => document.getElementById(id);
   const el = {
-    run: $('btnRun'), zip: $('btnZip'), reset: $('btnReset'), clear: $('btnClear'),
+    run: $('btnRun'), stop: $('btnStop'), zip: $('btnZip'), reset: $('btnReset'), clear: $('btnClear'),
     newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'), theme: $('selTheme'),
     editor: $('editor'), console: $('console'), stdin: $('stdin'),
     prompt: $('prompt'), liveInput: $('liveInput'), args: $('txtArgs'),
@@ -373,6 +373,24 @@ inline std::string greeting(const std::string& who) {
     }
   });
 
+  /* Terminating the worker is the only way to stop wasm: it cannot be
+   * interrupted from outside, and it may be parked in Atomics.wait for input.
+   * The next run pays for a fresh worker (clang comes from the HTTP cache). */
+  function stop() {
+    if (!running) return;
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
+    running = false;
+    el.run.disabled = false;
+    el.stop.disabled = true;
+    showPrompt(false);
+    setRunningInputs(false);
+    appendOutput('\n\x1b[91mstopped\x1b[0m\n');
+    setStatus('stopped', 'err');
+  }
+
   function ensureWorker() {
     if (worker) return worker;
     worker = new Worker('js/worker.js');
@@ -386,6 +404,7 @@ inline std::string greeting(const std::string& who) {
       } else if (id === 'done') {
         running = false;
         el.run.disabled = false;
+        el.stop.disabled = true;
         showPrompt(false);
         setRunningInputs(false);
         if (data.ok) {
@@ -402,6 +421,7 @@ inline std::string greeting(const std::string& who) {
     worker.onerror = e => {
       running = false;
       el.run.disabled = false;
+      el.stop.disabled = true;
       showPrompt(false);
       setRunningInputs(false);
       setStatus('worker error', 'err');
@@ -417,6 +437,7 @@ inline std::string greeting(const std::string& who) {
 
     running = true;
     el.run.disabled = true;
+    el.stop.disabled = false;
     setRunningInputs(true);
     el.console.textContent = '';
     setStatus('building…', 'busy');
@@ -471,6 +492,7 @@ inline std::string greeting(const std::string& who) {
 
   el.theme.addEventListener('change', selectTheme);
   el.run.onclick = run;
+  el.stop.onclick = stop;
   el.zip.onclick = downloadZip;
   el.newFile.onclick = newFile;
   el.clear.onclick = () => { el.console.textContent = ''; setStatus('idle'); };
@@ -503,6 +525,12 @@ inline std::string greeting(const std::string& who) {
   // also covers panes resizing and tabs that start in the background, where
   // requestAnimationFrame never fires.
   new ResizeObserver(() => editor.resize()).observe(el.editor);
+
+  Panels.init({
+    main: $('main'), sidebar: $('sidebar'), ioPane: $('ioPane'), ioBottom: $('ioBottom'),
+    leftHandle: $('splitLeft'), rightHandle: $('splitRight'), bottomHandle: $('splitBottom'),
+    onResize: () => editor.resize(),
+  });
   window.addEventListener('resize', () => editor.resize());
 
   init();

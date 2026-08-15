@@ -32,6 +32,8 @@ offline once loaded.
   with Ctrl+D for end of input; the *Program input* box preloads text before that
 - Command line arguments, quoted like a shell (`--flag "two words"`)
 - Dark and light themes (VS Code Dark+ / Light+), or follow the OS setting
+- Stop button for runaway programs; resizable panes in both directions (drag a
+  splitter, double-click one to reset)
 - Export the project as a `.zip` containing a real, buildable `CMakeLists.txt`
 - Project state is kept in `localStorage`
 
@@ -121,6 +123,8 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   js/worker.js       compile/link/run driver
   js/wasi.js         WASI preview1 host with an in-memory filesystem
   js/tar.js          tar reader + gzip inflate
+  js/panels.js       draggable splitters between the panes
+  js/stdin-channel.js  blocking stdin handoff to the worker
   js/zip.js          minimal store-only ZIP writer
   js/cmake.js        CMakeLists.txt / README generator for exports
   js/ts-highlight.js Tree-sitter highlighting, plugged into Ace's tokenizer
