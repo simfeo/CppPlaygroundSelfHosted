@@ -9,6 +9,7 @@
     std: 'c++17',
     opt: '2',
     flags: '',
+    args: '',
     stdin: '',
     active: 'main.cpp',
     files: [
@@ -45,6 +46,8 @@ inline std::string greeting(const std::string& who) {
     run: $('btnRun'), zip: $('btnZip'), reset: $('btnReset'), clear: $('btnClear'),
     newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'), theme: $('selTheme'),
     editor: $('editor'), console: $('console'), stdin: $('stdin'),
+    prompt: $('prompt'), liveInput: $('liveInput'), args: $('txtArgs'),
+    stdinNote: $('stdinNote'),
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
     status: $('status'),
   };
@@ -322,16 +325,69 @@ inline std::string greeting(const std::string& who) {
 
   /* ---------- build & run ---------- */
 
+  /* ---------- live stdin ---------- */
+
+  // A program blocked on std::cin can only be unblocked by writing into a
+  // SharedArrayBuffer it waits on, which needs a cross-origin isolated page.
+  const stdinBuffer = StdinChannel.supported() ? StdinChannel.createBuffer() : null;
+  const writeStdin = stdinBuffer ? StdinChannel.writer(stdinBuffer) : null;
+
+  function showPrompt(show) {
+    el.prompt.hidden = !show;
+    if (show) {
+      el.liveInput.focus();
+      el.prompt.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // The preloaded box is only read when a run starts, so during a run it is
+  // disabled: it looks like the place to type, and it is not.
+  function setRunningInputs(isRunning) {
+    el.stdin.disabled = isRunning;
+    el.stdinNote.textContent = !stdinBuffer
+      ? 'typing live needs a cross-origin isolated server (serve.py)'
+      : isRunning ? 'sent at start — type in the ▶ line above' : '';
+  }
+
+  // If someone still aims for the old box while a program waits, take them
+  // where the typing actually goes.
+  el.stdin.addEventListener('focus', () => {
+    if (!el.prompt.hidden) el.liveInput.focus();
+  });
+
+  function sendLine(text) {
+    if (!writeStdin) return;
+    appendOutput(text === null ? '\n' : text);
+    writeStdin(text);
+    el.liveInput.value = '';
+    showPrompt(false);
+  }
+
+  el.liveInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendLine(el.liveInput.value + '\n');
+    } else if (e.key === 'd' && e.ctrlKey) {
+      e.preventDefault();
+      sendLine(null); // end of input
+    }
+  });
+
   function ensureWorker() {
     if (worker) return worker;
     worker = new Worker('js/worker.js');
+    if (stdinBuffer) worker.postMessage({ id: 'stdin-channel', data: stdinBuffer });
     worker.onmessage = event => {
       const { id, data } = event.data;
       if (id === 'write') {
         appendOutput(data);
+      } else if (id === 'stdin-request') {
+        showPrompt(true);
       } else if (id === 'done') {
         running = false;
         el.run.disabled = false;
+        showPrompt(false);
+        setRunningInputs(false);
         if (data.ok) {
           setStatus('finished', 'ok');
         } else {
@@ -346,6 +402,8 @@ inline std::string greeting(const std::string& who) {
     worker.onerror = e => {
       running = false;
       el.run.disabled = false;
+      showPrompt(false);
+      setRunningInputs(false);
       setStatus('worker error', 'err');
       appendOutput(`\n\x1b[91mWorker error: ${e.message}\x1b[0m\n`);
     };
@@ -359,6 +417,7 @@ inline std::string greeting(const std::string& who) {
 
     running = true;
     el.run.disabled = true;
+    setRunningInputs(true);
     el.console.textContent = '';
     setStatus('building…', 'busy');
 
@@ -367,6 +426,7 @@ inline std::string greeting(const std::string& who) {
       data: {
         files: state.files.map(f => ({ path: f.path, content: f.content })),
         stdin: state.stdin,
+        args: state.args,
         options: { std: state.std, opt: state.opt, flags: state.flags },
       }
     });
@@ -376,6 +436,7 @@ inline std::string greeting(const std::string& who) {
     state.std = el.std.value;
     state.opt = el.opt.value;
     state.flags = el.flags.value;
+    state.args = el.args.value;
     state.stdin = el.stdin.value;
     state.project = el.project.value.trim() || 'playground';
   }
@@ -420,7 +481,7 @@ inline std::string greeting(const std::string& who) {
     save();
     init();
   };
-  for (const node of [el.std, el.opt, el.flags, el.stdin, el.project]) {
+  for (const node of [el.std, el.opt, el.flags, el.args, el.stdin, el.project]) {
     node.addEventListener('change', () => { collectOptions(); save(); });
   }
 
@@ -428,10 +489,12 @@ inline std::string greeting(const std::string& who) {
     el.std.value = state.std;
     el.opt.value = state.opt;
     el.flags.value = state.flags;
+    el.args.value = state.args || '';
     el.stdin.value = state.stdin;
     el.project.value = state.project;
     renderFiles();
     applyTheme();
+    setRunningInputs(false);
     setStatus('idle');
   }
 

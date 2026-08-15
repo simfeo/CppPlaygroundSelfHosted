@@ -180,7 +180,33 @@ kbd { font: 11px var(--mono); opacity: .7; }
   word-break: break-word;
   min-height: 0;
 }
-#stdin { height: 110px; flex: none; border: none; border-radius: 0; background: var(--console-bg); color: var(--fg); font: 12px/1.45 var(--mono); resize: vertical; }
+#stdin:disabled { opacity: .5; }
+#stdin { height: 90px; flex: none; border: none; border-radius: 0; background: var(--console-bg); color: var(--fg); font: 12px/1.45 var(--mono); resize: vertical; }
+
+/* Live input line, shown only while a program is blocked on stdin */
+#prompt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  flex: none;
+  background: var(--console-bg);
+  border-top: 1px solid var(--border);
+  /* stands out while a program is blocked on it */
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+#prompt[hidden] { display: none; }
+.prompt-caret { color: var(--accent); font-size: 11px; }
+.note { text-transform: none; letter-spacing: 0; color: var(--ansi-yellow); font-size: 11px; }
+#liveInput {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  font: 12px/1.45 var(--mono);
+  color: var(--fg);
+  outline: none;
+}
 .status { font-size: 11px; text-transform: none; letter-spacing: 0; }
 .status.busy { color: var(--ansi-yellow); }
 .status.ok { color: var(--ansi-green); }

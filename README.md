@@ -28,7 +28,9 @@ offline once loaded.
 - Full C++ standard library: libc++ built from the same LLVM release
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
-- stdin: whatever you put in the *Program input* box is fed to the program
+- Interactive stdin: programs block on `std::cin` and you type into the console,
+  with Ctrl+D for end of input; the *Program input* box preloads text before that
+- Command line arguments, quoted like a shell (`--flag "two words"`)
 - Dark and light themes (VS Code Dark+ / Light+), or follow the OS setting
 - Export the project as a `.zip` containing a real, buildable `CMakeLists.txt`
 - Project state is kept in `localStorage`
@@ -155,9 +157,10 @@ cmake --build build --config Release
 
 ## Limitations
 
-- **stdin is not interactive.** The program reads from the input box, not from a
-  live terminal — blocking reads would need SharedArrayBuffer plus a second
-  worker.
+- **Interactive stdin needs a cross-origin isolated server**, because blocking a
+  worker for input requires SharedArrayBuffer. `serve.py` sends the necessary
+  COOP/COEP headers; on a server that does not, the playground says so and falls
+  back to the preloaded input box.
 - **No threads, no networking** in compiled programs (single-threaded WASI
   sandbox with an in-memory filesystem).
 - Exceptions need a browser with the standardized wasm EH proposal (Chrome 95+,

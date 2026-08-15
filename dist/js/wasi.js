@@ -131,9 +131,16 @@
       this.env = options.env || {};
       this.onStdout = options.stdout || (() => { });
       this.onStderr = options.stderr || options.stdout || (() => { });
-      this.stdinBytes = options.stdin instanceof Uint8Array ? options.stdin
-        : new TextEncoder().encode(options.stdin || '');
+      // stdin is either fixed bytes/text, or a function called when the program
+      // reads and the buffer is empty. The function blocks until input arrives
+      // and returns null at end of input - that is what makes std::cin
+      // interactive.
+      this.stdinFn = typeof options.stdin === 'function' ? options.stdin : null;
+      this.stdinBytes = this.stdinFn ? new Uint8Array(0)
+        : options.stdin instanceof Uint8Array ? options.stdin
+          : new TextEncoder().encode(options.stdin || '');
       this.stdinPos = 0;
+      this.stdinEof = false;
 
       this.fds = new Map();
       this.fds.set(0, new StdioDesc('stdin', null));
@@ -165,6 +172,19 @@
 
     readString(ptr, len) {
       return new TextDecoder('utf-8').decode(this.u8.subarray(ptr, ptr + len));
+    }
+
+    /* Tops up the stdin buffer from the live source when it runs dry. */
+    fillStdin() {
+      if (!this.stdinFn || this.stdinEof) return;
+      if (this.stdinPos < this.stdinBytes.length) return;
+      const more = this.stdinFn();
+      if (!more || more.length === 0) {
+        this.stdinEof = true;
+        return;
+      }
+      this.stdinBytes = more;
+      this.stdinPos = 0;
     }
 
     iovs(ptr, count) {
@@ -339,6 +359,7 @@
             let chunk;
             if (desc instanceof StdioDesc) {
               if (desc.kind !== 'stdin') return E.BADF;
+              self_.fillStdin();
               chunk = self_.stdinBytes.subarray(self_.stdinPos, self_.stdinPos + buf.length);
               self_.stdinPos += chunk.length;
             } else {

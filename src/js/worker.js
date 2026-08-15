@@ -6,7 +6,7 @@
  * object files one produces are the files the next one reads.
  */
 
-self.importScripts('wasi.js', 'tar.js');
+self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js');
 
 const VENDOR = '../vendor/';
 const SOURCE_EXT = /\.(c|cc|cpp|cxx|c\+\+)$/i;
@@ -144,6 +144,42 @@ async function link(objs, out) {
   ]);
 }
 
+/* Splits a command line into argv, honouring single and double quotes so that
+ * arguments containing spaces survive. */
+function splitArgs(line) {
+  const args = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match;
+  while ((match = pattern.exec(line || '')) !== null) {
+    args.push(match[1] !== undefined ? match[1]
+      : match[2] !== undefined ? match[2]
+        : match[3]);
+  }
+  return args;
+}
+
+/* Input the program reads: whatever is in the input box first, then, if the
+ * page gave us a shared buffer, live typing. Without that buffer there is no
+ * way to block for input, so the preloaded text is simply followed by EOF. */
+let stdinChannel = null;
+
+function makeStdin(preloaded) {
+  const encoder = new TextEncoder();
+  let pending = preloaded ? encoder.encode(preloaded) : null;
+  const readLive = stdinChannel
+    ? StdinChannel.reader(stdinChannel, () => post({ id: 'stdin-request' }))
+    : null;
+
+  return function nextChunk() {
+    if (pending) {
+      const chunk = pending;
+      pending = null;
+      return chunk;
+    }
+    return readLive ? readLive() : null;
+  };
+}
+
 async function build(payload) {
   const { files, stdin } = payload;
   const opts = payload.options;
@@ -173,14 +209,15 @@ async function build(payload) {
   if (!binary) throw new Error('link produced no output');
   const module = await WebAssembly.compile(binary);
 
-  log('running\n\n');
+  const argv = ['a.out', ...splitArgs(payload.args)];
+  log(`running${argv.length > 1 ? ' ' + argv.slice(1).join(' ') : ''}\n\n`);
   const wasi = new WASI({
     fs,
-    args: ['a.out'],
+    args: argv,
     env: { USER: 'you', HOME: '/work', PATH: '/bin' },
     stdout: write,
     stderr: write,
-    stdin: stdin || '',
+    stdin: makeStdin(stdin || ''),
   });
   const instance = await WebAssembly.instantiate(module, wasi.imports);
   const code = wasi.start(instance);
@@ -190,6 +227,10 @@ async function build(payload) {
 
 self.onmessage = async (event) => {
   const { id, data } = event.data;
+  if (id === 'stdin-channel') {
+    stdinChannel = data;
+    return;
+  }
   if (id !== 'run') return;
   try {
     const code = await build(data);

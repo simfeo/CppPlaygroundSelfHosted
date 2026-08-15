@@ -70,14 +70,25 @@
         <button id="btnClear" title="Clear output">✕</button>
       </div>
       <pre id="console"></pre>
-      <div class="panel-head"><span>Program input (stdin)</span></div>
-      <textarea id="stdin" spellcheck="false" placeholder="Text fed to the program's stdin when it runs."></textarea>
+      <div id="prompt" hidden>
+        <span class="prompt-caret">▶</span>
+        <input id="liveInput" spellcheck="false" autocomplete="off"
+               placeholder="the program is waiting — type, then Enter (Ctrl+D ends input)">
+      </div>
+      <div class="panel-head"><span>Arguments</span></div>
+      <div class="pad">
+        <input id="txtArgs" type="text" spellcheck="false"
+               placeholder="argv, e.g. --verbose &quot;file name.txt&quot;">
+      </div>
+      <div class="panel-head"><span>Program input (stdin)</span><span id="stdinNote" class="note"></span></div>
+      <textarea id="stdin" spellcheck="false" placeholder="Sent before any typing. Leave empty to type everything live."></textarea>
     </section>
   </main>
 
   <script src="vendor/ace/ace.js"></script>
   <script src="vendor/ace/mode-c_cpp.js"></script>
   <script src="js/ace-theme-vscode.js"></script>
+  <script src="js/stdin-channel.js"></script>
   <script src="js/zip.js"></script>
   <script src="js/cmake.js"></script>
   <script src="js/app.js"></script>
