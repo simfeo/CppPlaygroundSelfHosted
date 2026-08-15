@@ -1,0 +1,11 @@
+--- a/llvm/lib/Support/CrashRecoveryContext.cpp
++++ b/llvm/lib/Support/CrashRecoveryContext.cpp
+@@ -475,6 +475,8 @@
+     return false;
+ #if defined(_WIN32)
+   ::RaiseException(RetCode, 0, 0, NULL);
++#elif defined(__wasi__)
++  // No signals on wasi; the crash cannot be re-raised.
+ #else
+   llvm::sys::unregisterHandlers();
+   raise(RetCode - 128);

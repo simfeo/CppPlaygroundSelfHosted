@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>wasi.js smoke test</title>
+<pre id="out">running...</pre>
+<script src="js/wasi.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  let text = '';
+  const fs = new MemFS();
+  fs.mkdirp('/work');
+  const wasi = new WASI({
+    fs,
+    args: ['smoke'],
+    env: { HOME: '/work' },
+    stdout: s => { text += s; },
+    stderr: s => { text += s; },
+    stdin: 'Simon\n',
+  });
+  try {
+    const response = await fetch('smoke.wasm');
+    const module = await WebAssembly.compile(await response.arrayBuffer());
+    const instance = await WebAssembly.instantiate(module, wasi.imports);
+    const code = wasi.start(instance);
+    text += `\n[exit ${code}]\n`;
+    const probe = fs.readFile('/work/probe.txt');
+    text += `[probe.txt in memfs: ${probe ? new TextDecoder().decode(probe).trim() : 'MISSING'}]\n`;
+  } catch (e) {
+    text += `\n[JS EXCEPTION] ${e && e.stack ? e.stack : e}\n`;
+  }
+  out.textContent = text;
+  window.__result = text;
+})();
+</script>

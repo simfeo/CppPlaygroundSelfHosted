@@ -1,0 +1,17 @@
+--- a/llvm/lib/Support/raw_socket_stream.cpp
++++ b/llvm/lib/Support/raw_socket_stream.cpp
+@@ -1,3 +1,8 @@
++// WASI has no sockets: wasi-libc declares sockaddr_un without sun_path, so none
++// of this can compile. Nothing in clang or lld references these symbols.
++#ifdef __wasi__
++namespace llvm {}
++#else
+ //===-- llvm/Support/raw_socket_stream.cpp - Socket streams --*- C++ -*-===//
+ //
+ // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+@@ -356,3 +361,5 @@
+   }
+   return raw_fd_stream::read(Ptr, Size);
+ }
++
++#endif // !__wasi__

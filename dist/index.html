@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C++ Playground</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header id="toolbar">
+    <span class="brand">C++ Playground</span>
+    <button id="btnRun" class="primary">▶ Run <kbd>Ctrl+↵</kbd></button>
+    <span class="sep"></span>
+    <label>std
+      <select id="selStd">
+        <option>c++11</option>
+        <option>c++14</option>
+        <option selected>c++17</option>
+        <option>c++20</option>
+      </select>
+    </label>
+    <label>opt
+      <select id="selOpt">
+        <option value="0">-O0</option>
+        <option value="1">-O1</option>
+        <option value="2" selected>-O2</option>
+        <option value="3">-O3</option>
+        <option value="s">-Os</option>
+      </select>
+    </label>
+    <label class="grow">flags
+      <input id="txtFlags" type="text" placeholder="-Wall -DFOO=1" spellcheck="false">
+    </label>
+    <span class="sep"></span>
+    <button id="btnZip">⤓ Download .zip</button>
+    <button id="btnReset">Reset</button>
+  </header>
+
+  <main id="main">
+    <nav id="sidebar">
+      <div class="panel-head">
+        <span>Files</span>
+        <button id="btnNewFile" title="New file">＋</button>
+      </div>
+      <ul id="fileList"></ul>
+      <div class="panel-head">
+        <span>Project</span>
+      </div>
+      <div class="pad">
+        <input id="txtProject" type="text" spellcheck="false" title="Project name (used for CMake target and zip name)">
+      </div>
+    </nav>
+
+    <section id="editorPane">
+      <div id="tabs"></div>
+      <div class="editor-wrap">
+        <div id="gutter"></div>
+        <textarea id="editor" spellcheck="false" wrap="off"></textarea>
+      </div>
+    </section>
+
+    <section id="ioPane">
+      <div class="panel-head">
+        <span>Output</span>
+        <span id="status" class="status">idle</span>
+        <button id="btnClear" title="Clear output">✕</button>
+      </div>
+      <pre id="console"></pre>
+      <div class="panel-head"><span>Program input (stdin)</span></div>
+      <textarea id="stdin" spellcheck="false" placeholder="Text fed to the program's stdin when it runs."></textarea>
+    </section>
+  </main>
+
+  <script src="js/zip.js"></script>
+  <script src="js/cmake.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

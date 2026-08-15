@@ -1,0 +1,15 @@
+--- a/llvm/lib/Support/CrashRecoveryContext.cpp	2026-08-15 16:18:31.788266841 +0100
++++ b/llvm/lib/Support/CrashRecoveryContext.cpp	2026-08-15 16:18:31.798266842 +0100
+@@ -329,6 +329,12 @@
+   }
+ }
+ 
++#elif defined(__wasi__)
++
++// WASI delivers no signals; there is nothing to install or restore.
++static void installExceptionOrSignalHandlers() {}
++static void uninstallExceptionOrSignalHandlers() {}
++
+ #else // !_WIN32
+ 
+ // Generic POSIX implementation.
