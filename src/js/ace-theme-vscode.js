@@ -77,8 +77,74 @@ ace.define("ace/theme/vscode_dark", ["require", "exports", "module", "ace/lib/do
     require("../lib/dom").importCssString(exports.cssText, exports.cssClass, false);
   });
 
+/* The same mapping in VS Code's "Light+" colours. */
+ace.define("ace/theme/vscode_light", ["require", "exports", "module", "ace/lib/dom"],
+  function (require, exports, module) {
+    exports.isDark = false;
+    exports.cssClass = "ace-vscode-light";
+    exports.cssText = `
+.ace-vscode-light {
+  background-color: #ffffff;
+  color: #3b3b3b;
+}
+.ace-vscode-light .ace_gutter {
+  background: #ffffff;
+  color: #6e7681;
+  border-right: 1px solid #e5e5e5;
+}
+.ace-vscode-light .ace_gutter-active-line { background-color: #f0f0f0; color: #333333; }
+.ace-vscode-light .ace_fold { background-color: #0000ff; }
+.ace-vscode-light .ace_cursor { color: #000000; }
+.ace-vscode-light .ace_marker-layer .ace_selection { background: #add6ff; }
+.ace-vscode-light.ace_multiselect .ace_selection.ace_start { box-shadow: 0 0 3px 0 #ffffff; }
+.ace-vscode-light .ace_marker-layer .ace_active-line { background: #f0f0f0; }
+.ace-vscode-light .ace_marker-layer .ace_selected-word { border: 1px solid #add6ff; }
+.ace-vscode-light .ace_marker-layer .ace_bracket { border: 1px solid #b9b9b9; }
+.ace-vscode-light .ace_indent-guide {
+  background: linear-gradient(to right, #d3d3d3 0 1px, transparent 1px);
+}
+.ace-vscode-light .ace_print-margin { width: 1px; background: #e5e5e5; }
+.ace-vscode-light .ace_invisible { color: #d3d3d3; }
+
+.ace-vscode-light .ace_comment { color: #008000; }
+.ace-vscode-light .ace_string { color: #a31515; }
+.ace-vscode-light .ace_constant.ace_language.ace_escape { color: #ee0000; }
+
+.ace-vscode-light .ace_constant.ace_numeric { color: #098658; }
+.ace-vscode-light .ace_constant.ace_language { color: #0000ff; }
+
+.ace-vscode-light .ace_keyword { color: #af00db; }
+.ace-vscode-light .ace_constant.ace_other { color: #a31515; }
+
+.ace-vscode-light .ace_keyword.ace_control { color: #af00db; }
+.ace-vscode-light .ace_storage,
+.ace-vscode-light .ace_storage.ace_type,
+.ace-vscode-light .ace_storage.ace_modifier { color: #0000ff; }
+.ace-vscode-light .ace_support.ace_type,
+.ace-vscode-light .ace_entity.ace_name.ace_type { color: #267f99; }
+.ace-vscode-light .ace_support.ace_function,
+.ace-vscode-light .ace_entity.ace_name.ace_function { color: #795e26; }
+
+.ace-vscode-light .ace_entity.ace_name.ace_namespace { color: #267f99; }
+.ace-vscode-light .ace_variable.ace_property { color: #001080; }
+.ace-vscode-light .ace_variable.ace_parameter { color: #001080; }
+.ace-vscode-light .ace_variable.ace_language { color: #0000ff; }
+.ace-vscode-light .ace_constant.ace_macro { color: #0000ff; }
+.ace-vscode-light .ace_keyword.ace_preproc { color: #af00db; }
+.ace-vscode-light .ace_entity.ace_name.ace_label { color: #3b3b3b; }
+
+.ace-vscode-light .ace_identifier { color: #001080; }
+.ace-vscode-light .ace_variable { color: #001080; }
+.ace-vscode-light .ace_keyword.ace_operator,
+.ace-vscode-light .ace_punctuation,
+.ace-vscode-light .ace_punctuation.ace_operator,
+.ace-vscode-light .ace_paren { color: #3b3b3b; }
+`;
+    require("../lib/dom").importCssString(exports.cssText, exports.cssClass, false);
+  });
+
 (function () {
-  ace.require(["ace/theme/vscode_dark"], function (m) {
+  ace.require(["ace/theme/vscode_dark", "ace/theme/vscode_light"], function (m) {
     if (typeof module === "object" && typeof exports === "object" && module) {
       module.exports = m;
     }

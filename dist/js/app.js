@@ -43,7 +43,7 @@ inline std::string greeting(const std::string& who) {
   const $ = id => document.getElementById(id);
   const el = {
     run: $('btnRun'), zip: $('btnZip'), reset: $('btnReset'), clear: $('btnClear'),
-    newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'),
+    newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'), theme: $('selTheme'),
     editor: $('editor'), console: $('console'), stdin: $('stdin'),
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
     status: $('status'),
@@ -53,11 +53,42 @@ inline std::string greeting(const std::string& who) {
   let worker = null;
   let running = false;
 
+  /* ---------- theme ---------- */
+
+  const THEME_KEY = 'cpp-playground.theme';
+  const THEMES = ['system', 'dark', 'light'];
+  const ACE_THEME = { dark: 'ace/theme/vscode_dark', light: 'ace/theme/vscode_light' };
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+  let themeChoice = THEMES.includes(localStorage.getItem(THEME_KEY))
+    ? localStorage.getItem(THEME_KEY)
+    : 'system';
+
+  function resolvedTheme() {
+    if (themeChoice !== 'system') return themeChoice;
+    return systemDark.matches ? 'dark' : 'light';
+  }
+
+  function applyTheme() {
+    const resolved = resolvedTheme();
+    document.documentElement.dataset.theme = resolved;
+    if (typeof editor !== 'undefined') editor.setTheme(ACE_THEME[resolved]);
+    el.theme.value = themeChoice;
+  }
+
+  function selectTheme() {
+    themeChoice = THEMES.includes(el.theme.value) ? el.theme.value : 'system';
+    localStorage.setItem(THEME_KEY, themeChoice);
+    applyTheme();
+  }
+
+  // Follow the OS while set to "system".
+  systemDark.addEventListener('change', () => { if (themeChoice === 'system') applyTheme(); });
+
   /* ---------- editor ---------- */
 
-  const THEME_DARK = 'ace/theme/vscode_dark';
   const editor = ace.edit(el.editor, {
-    theme: THEME_DARK,
+    theme: ACE_THEME[resolvedTheme()],
     fontSize: 13,
     tabSize: 4,
     useSoftTabs: true,
@@ -377,6 +408,7 @@ inline std::string greeting(const std::string& who) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
   });
 
+  el.theme.addEventListener('change', selectTheme);
   el.run.onclick = run;
   el.zip.onclick = downloadZip;
   el.newFile.onclick = newFile;
@@ -399,6 +431,7 @@ inline std::string greeting(const std::string& who) {
     el.stdin.value = state.stdin;
     el.project.value = state.project;
     renderFiles();
+    applyTheme();
     setStatus('idle');
   }
 

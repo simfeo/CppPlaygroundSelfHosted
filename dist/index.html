@@ -32,6 +32,13 @@
       <input id="txtFlags" type="text" placeholder="-Wall -DFOO=1" spellcheck="false">
     </label>
     <span class="sep"></span>
+    <label>Theme:
+      <select id="selTheme" title="Editor and interface colours">
+        <option value="system">System</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
     <button id="btnZip">⤓ Download .zip</button>
     <button id="btnReset">Reset</button>
   </header>
@@ -71,7 +78,6 @@
   <script src="vendor/ace/ace.js"></script>
   <script src="vendor/ace/mode-c_cpp.js"></script>
   <script src="js/ace-theme-vscode.js"></script>
-  <script src="vendor/ace/theme-textmate.js"></script>
   <script src="js/zip.js"></script>
   <script src="js/cmake.js"></script>
   <script src="js/app.js"></script>

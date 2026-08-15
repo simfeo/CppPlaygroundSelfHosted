@@ -1,12 +1,49 @@
+/* Dark is the default; [data-theme="light"] on <html> overrides it. Everything
+   colour-related goes through these variables so the switch is complete. */
 :root {
-  --bg: #1e1f22;
-  --bg2: #2b2d30;
-  --bg3: #35373b;
-  --fg: #dfe1e5;
-  --fg-dim: #9aa0a6;
-  --accent: #4a9eff;
-  --border: #43454a;
+  --bg: #1f1f1f;
+  --bg2: #181818;
+  --bg3: #2b2b2b;
+  --fg: #cccccc;
+  --fg-dim: #9d9d9d;
+  --accent: #0078d4;
+  --accent-fg: #ffffff;
+  --border: #2b2b2b;
+  --console-bg: #181818;
+  --hover: #2a2d2e;
   --mono: ui-monospace, "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+
+  /* clang's diagnostic colours, as a terminal would render them */
+  --ansi-black: #6e7681;  --ansi-red: #f14c4c;     --ansi-green: #23d18b;
+  --ansi-yellow: #f5f543; --ansi-blue: #3b8eea;    --ansi-magenta: #d670d6;
+  --ansi-cyan: #29b8db;   --ansi-white: #e5e5e5;
+  --ansi-bright-black: #6e7681;  --ansi-bright-red: #ff7b72;
+  --ansi-bright-green: #7ee787;  --ansi-bright-yellow: #ffd486;
+  --ansi-bright-blue: #79c0ff;   --ansi-bright-magenta: #f0a3f0;
+  --ansi-bright-cyan: #7fd6de;   --ansi-bright-white: #ffffff;
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg2: #f8f8f8;
+  --bg3: #e9e9e9;
+  --fg: #3b3b3b;
+  --fg-dim: #616161;
+  --accent: #005fb8;
+  --accent-fg: #ffffff;
+  --border: #e5e5e5;
+  --console-bg: #f8f8f8;
+  --hover: #e8e8e8;
+
+  --ansi-black: #6e7681;  --ansi-red: #cd3131;     --ansi-green: #00bc00;
+  --ansi-yellow: #949800; --ansi-blue: #0451a5;    --ansi-magenta: #bc05bc;
+  --ansi-cyan: #0598bc;   --ansi-white: #555555;
+  /* Bright green/yellow are darker than VS Code's: clang paints warnings in
+     them, and the originals are close to unreadable on white. */
+  --ansi-bright-black: #666666;  --ansi-bright-red: #cd3131;
+  --ansi-bright-green: #0f9d0f;  --ansi-bright-yellow: #a67a00;
+  --ansi-bright-blue: #0451a5;   --ansi-bright-magenta: #bc05bc;
+  --ansi-bright-cyan: #0598bc;   --ansi-bright-white: #000000;
 }
 
 * { box-sizing: border-box; }
@@ -46,8 +83,8 @@ button, select, input, textarea {
   font: inherit;
 }
 button { cursor: pointer; }
-button:hover { background: #414449; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #08121f; font-weight: 600; }
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 button.primary:hover { filter: brightness(1.1); }
 button:disabled { opacity: .5; cursor: default; }
 kbd { font: 11px var(--mono); opacity: .7; }
@@ -104,7 +141,7 @@ kbd { font: 11px var(--mono); opacity: .7; }
   font-family: var(--mono);
   font-size: 12px;
 }
-#fileList li:hover { background: var(--bg3); }
+#fileList li:hover { background: var(--hover); }
 #fileList li.active { background: var(--bg); color: var(--accent); }
 #fileList li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #fileList li button { visibility: hidden; padding: 0 3px; background: none; border: none; color: var(--fg-dim); }
@@ -137,23 +174,25 @@ kbd { font: 11px var(--mono); opacity: .7; }
   margin: 0;
   padding: 8px;
   overflow: auto;
-  background: #17181a;
+  background: var(--console-bg);
   font: 12px/1.45 var(--mono);
   white-space: pre-wrap;
   word-break: break-word;
   min-height: 0;
 }
-#stdin { height: 110px; flex: none; border: none; border-radius: 0; background: #17181a; font: 12px/1.45 var(--mono); resize: vertical; }
+#stdin { height: 110px; flex: none; border: none; border-radius: 0; background: var(--console-bg); color: var(--fg); font: 12px/1.45 var(--mono); resize: vertical; }
 .status { font-size: 11px; text-transform: none; letter-spacing: 0; }
-.status.busy { color: #e5c07b; }
-.status.ok { color: #98c379; }
-.status.err { color: #e06c75; }
+.status.busy { color: var(--ansi-yellow); }
+.status.ok { color: var(--ansi-green); }
+.status.err { color: var(--ansi-red); }
 
-/* ANSI colors emitted by clang diagnostics */
-.a30 { color: #5c6066 } .a31 { color: #e06c75 } .a32 { color: #98c379 }
-.a33 { color: #e5c07b } .a34 { color: #61afef } .a35 { color: #c678dd }
-.a36 { color: #56b6c2 } .a37 { color: #dfe1e5 }
-.a90 { color: #5c6066 } .a91 { color: #ff7b7b } .a92 { color: #b5e890 }
-.a93 { color: #ffd486 } .a94 { color: #8ac4ff } .a95 { color: #dfa3f0 }
-.a96 { color: #7fd6de } .a97 { color: #ffffff }
+/* ANSI colours emitted by clang diagnostics */
+.a30 { color: var(--ansi-black) }   .a31 { color: var(--ansi-red) }
+.a32 { color: var(--ansi-green) }   .a33 { color: var(--ansi-yellow) }
+.a34 { color: var(--ansi-blue) }    .a35 { color: var(--ansi-magenta) }
+.a36 { color: var(--ansi-cyan) }    .a37 { color: var(--ansi-white) }
+.a90 { color: var(--ansi-bright-black) }   .a91 { color: var(--ansi-bright-red) }
+.a92 { color: var(--ansi-bright-green) }   .a93 { color: var(--ansi-bright-yellow) }
+.a94 { color: var(--ansi-bright-blue) }    .a95 { color: var(--ansi-bright-magenta) }
+.a96 { color: var(--ansi-bright-cyan) }    .a97 { color: var(--ansi-bright-white) }
 .bold { font-weight: 700 }

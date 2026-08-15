@@ -29,6 +29,7 @@ offline once loaded.
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
 - stdin: whatever you put in the *Program input* box is fed to the program
+- Dark and light themes (VS Code Dark+ / Light+), or follow the OS setting
 - Export the project as a `.zip` containing a real, buildable `CMakeLists.txt`
 - Project state is kept in `localStorage`
 
@@ -172,5 +173,7 @@ B.V. Tree-sitter and the C/C++ grammars (`src/vendor/tree-sitter/`) are MIT.
 All their licenses are retained verbatim alongside the files.
 
 Clang, LLD, libc++ and libunwind are Apache-2.0 with the LLVM exception. The
-wasi-sysroot components are from wasi-sdk (Apache-2.0 / MIT). Everything under
-`src/` and `tools/` is this project's own code.
+wasi-sysroot components are from wasi-sdk (Apache-2.0 / MIT).
+
+Everything else - `src/`, `tools/` and `serve.py` - is this project's own code,
+MIT licensed; see `LICENSE`.
