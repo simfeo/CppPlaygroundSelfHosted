@@ -7,6 +7,9 @@
   'use strict';
 
   const KEY = 'cpp-playground.layout';
+  // Below this the panes stack (see app.css) and stored widths would fight the
+  // stylesheet, since an inline width beats a media query.
+  const STACKED = '(max-width: 700px)';
   const MIN_SIDEBAR = 120, MAX_SIDEBAR = 500;
   const MIN_IO = 260, MIN_EDITOR = 240;  // MIN_IO matches #ioPane's CSS min-width
   const MIN_BOTTOM = 60, MIN_CONSOLE = 80;
@@ -28,8 +31,10 @@
     const { main, sidebar, ioPane, ioBottom, leftHandle, rightHandle, bottomHandle,
       onResize } = opts;
     const layout = load();
+    const stacked = () => window.matchMedia(STACKED).matches;
 
     function save() {
+      if (stacked()) return;  // heights here are the stylesheet's, not the user's
       try {
         localStorage.setItem(KEY, JSON.stringify({
           sidebar: sidebar.getBoundingClientRect().width,
@@ -54,8 +59,19 @@
       ioBottom.style.height = `${clamp(height, MIN_BOTTOM, Math.max(MIN_BOTTOM, available))}px`;
     }
 
-    if (layout.sidebar) setSidebar(layout.sidebar);
-    if (layout.io) setIo(layout.io);
+    // Restores the horizontal split, or hands it back to the stylesheet while
+    // stacked. Runs on load and whenever the window crosses the breakpoint.
+    function applyWidths() {
+      if (stacked()) {
+        sidebar.style.width = '';
+        ioPane.style.width = '';
+        return;
+      }
+      if (layout.sidebar) setSidebar(layout.sidebar);
+      if (layout.io) setIo(layout.io);
+    }
+
+    applyWidths();
     if (layout.bottom) setBottom(layout.bottom);
 
     function drag(handle, vertical, onMove) {
@@ -94,7 +110,8 @@
 
     window.addEventListener('resize', () => {
       // Keep the panes inside the window when it shrinks.
-      setIo(ioPane.getBoundingClientRect().width);
+      applyWidths();
+      if (!stacked()) setIo(ioPane.getBoundingClientRect().width);
       setBottom(ioBottom.getBoundingClientRect().height);
       if (onResize) onResize();
     });

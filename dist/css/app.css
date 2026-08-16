@@ -67,6 +67,10 @@ body { display: flex; flex-direction: column; }
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex: none;
+  /* Without this the row overflows on a phone and Reset/About become
+     unreachable — there is nothing to scroll the toolbar with. */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 /* An <h1> for search engines, sized like the toolbar text it sits in. */
 .brand { font: inherit; font-weight: 600; letter-spacing: .3px; margin: 0 4px 0 0; }
@@ -74,7 +78,9 @@ body { display: flex; flex-direction: column; }
 #toolbar label { display: flex; align-items: center; gap: 4px; color: var(--fg-dim); }
 #toolbar input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
 #toolbar label.grow { flex: 1; min-width: 120px; }
-#toolbar label.grow input { flex: 1; }
+/* min-width:0 — a flex item defaults to its intrinsic width and would push the
+   toolbar past the viewport edge on a phone. */
+#toolbar label.grow input { flex: 1; min-width: 0; }
 
 button, select, input, textarea {
   background: var(--bg3);
@@ -110,7 +116,9 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
 #sidebar {
   width: 200px;
   min-width: 0;
-  flex: none;
+  /* Shrinkable so sidebar + splitters + output pane can never exceed the
+     viewport and force the whole page to scroll sideways. */
+  flex: 0 1 auto;
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -120,12 +128,34 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
 #editorPane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #ioPane {
   width: 42%;
-  min-width: 260px;
-  flex: none;
+  min-width: 0;
+  flex: 0 1 auto;
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: var(--bg2);
+}
+
+/* Narrow screens: side-by-side leaves the editor a few pixels wide, so the panes
+   stack instead. The horizontal splitters go away with the columns they divided;
+   the output/stdin one still works. Panels.js stops writing inline widths here. */
+@media (max-width: 700px) {
+  #main { flex-direction: column; }
+  #sidebar {
+    width: auto;
+    max-height: 26vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  #editorPane { flex: 1 1 auto; min-height: 200px; }
+  #ioPane {
+    width: auto;
+    height: 45%;
+    min-height: 160px;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  #splitLeft, #splitRight { display: none; }
 }
 
 .panel-head {
