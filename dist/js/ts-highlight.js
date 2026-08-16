@@ -51,17 +51,24 @@ class CppHighlighter {
     this.parser = new Parser();
     this.parser.setLanguage(language);
     this.tree = null;
-    this.lines = [];      // per row: [{type, value}, ...]
-    this.lineText = [];   // the text each row was built from
   }
 
-  /* Parses the document and rebuilds the per-line token cache.
+  /* Parses one file and fills that file's token cache.
+   *
+   * The cache is passed in rather than kept here: every open file has its own
+   * Ace session, and one shared cache would only ever match the file parsed
+   * last, leaving every other file to render as plain text.
    *
    * Deliberately a full reparse. Passing the previous tree only works if it has
    * been told about each edit via tree.edit(); handing over a stale tree instead
    * yields silently wrong node positions. Playground files are small enough that
    * parsing from scratch is immeasurable. */
-  update(source) {
+  update(text, cache) {
+    // Ace stores lines without their terminator and switches the document's
+    // newline to \r\n as soon as CRLF text is pasted over the whole buffer.
+    // Splitting such text on '\n' would leave a trailing \r on every cached
+    // line, none of which would ever match what Ace renders.
+    const source = text.indexOf('\r') === -1 ? text : text.replace(/\r\n?/g, '\n');
     const tree = this.parser.parse(source);
     if (this.tree) this.tree.delete();
     this.tree = tree;
@@ -87,14 +94,15 @@ class CppHighlighter {
       owner.fill(id, capture.start, Math.min(capture.end, source.length));
     }
 
-    this.lines = [];
-    this.lineText = [];
+    cache.lines = [];
+    cache.lineText = [];
     let offset = 0;
     for (const line of source.split('\n')) {
-      this.lines.push(this.tokensFor(owner, names, offset, line));
-      this.lineText.push(line);
+      cache.lines.push(this.tokensFor(owner, names, offset, line));
+      cache.lineText.push(line);
       offset += line.length + 1;
     }
+    return cache;
   }
 
   tokensFor(owner, names, offset, line) {
@@ -114,15 +122,14 @@ class CppHighlighter {
     return tokens.length ? tokens : [{ type: 'text', value: line }];
   }
 
-  /* An Ace tokenizer backed by the cache. Ace passes the line it is about to
-   * render; if it does not match what we parsed, the cache is mid-update and
+  /* An Ace tokenizer reading one file's cache. Ace passes the line it is about
+   * to render; if it does not match what we parsed, the cache is mid-update and
    * plain text is the honest answer for one frame. */
-  tokenizer() {
-    const self = this;
+  tokenizer(cache) {
     return {
       getLineTokens(line, state, row) {
-        const cached = self.lines[row];
-        if (cached && self.lineText[row] === line) return { tokens: cached, state: null };
+        const cached = cache.lines[row];
+        if (cached && cache.lineText[row] === line) return { tokens: cached, state: null };
         return { tokens: [{ type: 'text', value: line }], state: null };
       },
     };

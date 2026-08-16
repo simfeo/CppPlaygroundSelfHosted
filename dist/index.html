@@ -3,14 +3,46 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C++ Playground</title>
+<title>Self-Hosted C++ Playground — compile and run C++ in your browser</title>
+<meta name="description" content="A self-hosted C++ playground: clang 22, wasm-ld and libc++ run as WebAssembly in your browser, with threads, exceptions and interactive input. Download the zip and host it yourself — no server-side compiler, no accounts.">
+<meta name="author" content="simfeo">
+<meta name="robots" content="index, follow">
+
+<!-- No absolute URLs anywhere below: every self-hosted copy of this page serves
+     it from a different origin, and a hardcoded canonical would tell search
+     engines all of them are duplicates of one site. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Self-Hosted C++ Playground">
+<meta property="og:title" content="Self-Hosted C++ Playground — compile and run C++ in your browser">
+<meta property="og:description" content="Clang 22, wasm-ld and libc++ as WebAssembly: your C++ is compiled, linked and executed entirely on the client. Threads, exceptions, interactive stdin. Download it and self-host.">
+<meta property="og:image" content="og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Self-Hosted C++ Playground">
+<meta name="twitter:description" content="Clang 22 compiled to WebAssembly. Compile and run C++ in the browser, or download the zip and host it yourself.">
+<meta name="twitter:image" content="og-image.png">
+
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="css/app.css">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Self-Hosted C++ Playground",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any browser with WebAssembly",
+  "downloadUrl": "https://github.com/simfeo/CppPlaygroundSelfHosted/releases/latest",
+  "codeRepository": "https://github.com/simfeo/CppPlaygroundSelfHosted",
+  "license": "https://opensource.org/licenses/MIT",
+  "description": "A self-hosted C++ playground. Clang 22, wasm-ld and libc++ are WebAssembly binaries, so C++ is compiled, linked and executed entirely in the browser, with threads, exceptions and interactive stdin.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 </head>
 <body>
   <header id="toolbar">
-    <span class="brand">C++ Playground</span>
+    <h1 class="brand">C++ Playground</h1>
     <button id="btnRun" class="primary">▶ Run <kbd>Ctrl+↵</kbd></button>
     <button id="btnStop" disabled title="Terminate the running program">■ Stop</button>
     <span class="sep"></span>
@@ -50,9 +82,69 @@
         <option value="light">Light</option>
       </select>
     </label>
-    <button id="btnZip">⤓ Download .zip</button>
+    <button id="btnZip" title="Export your project as a zip with a CMakeLists.txt">⤓ Download .zip</button>
     <button id="btnReset">Reset</button>
+    <button id="btnAbout" title="About this playground, help and downloads">? About</button>
   </header>
+
+  <dialog id="about">
+    <article>
+      <h2>Self-hosted C++ playground</h2>
+      <p>
+        A complete C++ toolchain running inside this tab. <strong>Clang 22.1.8,
+        wasm-ld and libc++ are themselves WebAssembly binaries</strong>, so your
+        code is compiled, linked and executed on your own machine. No server ever
+        sees it, there are no accounts, and the page keeps working offline once
+        it has loaded.
+      </p>
+
+      <h3>Run it yourself</h3>
+      <p>
+        This is free software and it is meant to be copied. Download the release
+        archive, unpack it and run <code>python serve.py</code> — that is the
+        whole installation.
+      </p>
+      <p class="about-links">
+        <a id="aboutDownload" href="https://github.com/simfeo/CppPlaygroundSelfHosted/releases/latest"
+           class="cta" rel="noopener">⤓ Download the playground (.zip)</a>
+        <a href="https://github.com/simfeo/CppPlaygroundSelfHosted" rel="noopener">Source on GitHub</a>
+      </p>
+
+      <h3>Using it</h3>
+      <ul>
+        <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> compiles and runs; <em>Stop</em> kills a runaway program.</li>
+        <li>Add headers and sources in <em>Files</em>; subdirectories work, and everything is built together.</li>
+        <li><em>Arguments</em> becomes <code>argv</code>, quoted like a shell.</li>
+        <li>Programs block on <code>std::cin</code> and you type into the console; <kbd>Ctrl</kbd>+<kbd>D</kbd> ends input. <em>Program input</em> preloads text before that.</li>
+        <li><code>std::thread</code> runs on real Web Workers over one shared memory. <em>threads</em> on <em>auto</em> adds <code>-pthread</code> only when your code needs it.</li>
+        <li><em>Download .zip</em> in the toolbar exports <em>your project</em> with a buildable <code>CMakeLists.txt</code>.</li>
+        <li>Your files are kept in this browser's <code>localStorage</code>; <em>Reset</em> clears them.</li>
+      </ul>
+
+      <h3>Good to know</h3>
+      <ul>
+        <li>Interactive input and threads need a cross-origin isolated host (COOP/COEP). Where that is missing the playground says so and falls back.</li>
+        <li>Compiled programs have no networking, and <code>hardware_concurrency()</code> reports 1.</li>
+        <li>First load fetches ~35 MB of toolchain, then caches it.</li>
+      </ul>
+
+      <p class="muted">
+        MIT licensed. Clang, LLD and libc++ are Apache-2.0 with the LLVM
+        exception; the Ace editor is BSD-3-Clause and Tree-sitter is MIT.
+      </p>
+
+      <form method="dialog"><button class="primary">Close</button></form>
+    </article>
+  </dialog>
+
+  <noscript>
+    <p style="padding:12px">
+      This self-hosted C++ playground compiles and runs C++ in your browser with
+      clang 22 built for WebAssembly, so JavaScript and WebAssembly must be
+      enabled. The source and downloadable releases are at
+      <a href="https://github.com/simfeo/CppPlaygroundSelfHosted">github.com/simfeo/CppPlaygroundSelfHosted</a>.
+    </p>
+  </noscript>
 
   <main id="main">
     <nav id="sidebar">

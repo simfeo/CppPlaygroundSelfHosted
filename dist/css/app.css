@@ -68,7 +68,8 @@ body { display: flex; flex-direction: column; }
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-.brand { font-weight: 600; letter-spacing: .3px; margin-right: 4px; }
+/* An <h1> for search engines, sized like the toolbar text it sits in. */
+.brand { font: inherit; font-weight: 600; letter-spacing: .3px; margin: 0 4px 0 0; }
 .sep { width: 1px; align-self: stretch; background: var(--border); }
 #toolbar label { display: flex; align-items: center; gap: 4px; color: var(--fg-dim); }
 #toolbar input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
@@ -229,6 +230,40 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
 .status.busy { color: var(--ansi-yellow); }
 .status.ok { color: var(--ansi-green); }
 .status.err { color: var(--ansi-red); }
+
+/* About / help dialog */
+#about {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+}
+#about::backdrop { background: rgba(0, 0, 0, .5); }
+#about article { padding: 18px 22px 22px; overflow: auto; max-height: inherit; }
+#about h2 { margin: 0 0 10px; font-size: 18px; }
+#about h3 { margin: 18px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-dim); }
+#about p { margin: 8px 0; }
+#about ul { margin: 6px 0; padding-left: 20px; }
+#about li { margin: 3px 0; }
+#about code { font: 12px var(--mono); background: var(--bg3); border-radius: 3px; padding: 0 4px; }
+#about kbd { font: 11px var(--mono); background: var(--bg3); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; opacity: 1; }
+#about a { color: var(--accent); }
+#about .muted { color: var(--fg-dim); font-size: 12px; }
+.about-links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* Kept at #about specificity so it wins over the plain link colour above. */
+#about .about-links .cta {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+#about .about-links .cta:hover { filter: brightness(1.1); }
+#about form { margin-top: 18px; text-align: right; }
 
 /* ANSI colours emitted by clang diagnostics */
 .a30 { color: var(--ansi-black) }   .a31 { color: var(--ansi-red) }

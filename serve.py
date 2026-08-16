@@ -6,6 +6,7 @@ isolated (SharedArrayBuffer available).
 """
 
 import argparse
+import email.utils
 import http.server
 import mimetypes
 import os
@@ -22,6 +23,9 @@ EXTENSIONLESS_WASM = {"clang", "lld", "memfs"}
 
 class HtmlHandler(http.server.BaseHTTPRequestHandler):
     html_dir = None
+    # HTTP/1.1 gives keep-alive and lets the browser cache and revalidate the
+    # large toolchain files instead of refetching them on every load.
+    protocol_version = "HTTP/1.1"
 
     @classmethod
     def set_configuration(cls, html_dir):
@@ -33,19 +37,41 @@ class HtmlHandler(http.server.BaseHTTPRequestHandler):
             return "application/wasm"
         return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
+    def isolation_headers(self):
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+
     def send_binary_file(self, path, body=True):
         candidate = os.path.abspath(os.path.join(self.html_dir, path))
         if not candidate.startswith(self.html_dir) or not os.path.isfile(candidate):
             self.send_error(404)
             return
+
+        stat = os.stat(candidate)
+        # Validators let the browser ask "has this changed?" instead of choosing
+        # between refetching 40 MB of toolchain every load and serving stale code.
+        etag = '"{:x}-{:x}"'.format(int(stat.st_mtime), stat.st_size)
+        modified = email.utils.formatdate(stat.st_mtime, usegmt=True)
+
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.isolation_headers()
+            self.end_headers()
+            return
+
         with open(candidate, "rb") as handle:
             data = handle.read()
         self.send_response(200)
         self.send_header("Content-type", self.guess_type(candidate))
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        self.send_header("ETag", etag)
+        self.send_header("Last-Modified", modified)
+        # no-cache means "revalidate before reusing", not "do not store": edits
+        # show up immediately, unchanged megabytes come back as a 304.
         self.send_header("Cache-Control", "no-cache")
+        self.isolation_headers()
         self.end_headers()
         if body:
             self.wfile.write(data)

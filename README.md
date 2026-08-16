@@ -5,9 +5,38 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![clang](https://img.shields.io/badge/clang-22.1.8-orange)](tools/toolchain/build_wasm_clang.sh)
 
-A cpp.sh-style C++ playground that runs entirely in the browser. **Clang 22 and
-wasm-ld are WebAssembly binaries**; your code is compiled, linked and executed on
-the client. No server-side compiler, no network calls, no accounts.
+A complete C++ toolchain that runs in your browser. **Clang 22.1.8, wasm-ld and
+libc++ are themselves WebAssembly binaries**, so your code is compiled, linked
+and executed entirely on the client — with threads, exceptions and interactive
+input. No server-side compiler, no accounts, and it keeps working offline once
+the page has loaded.
+
+## Screenshots
+
+Multi-file project, dark theme — the output pane shows the exact clang and
+wasm-ld command lines each run used:
+
+![Dark theme](docs/dark.png)
+
+The same project in the light theme, with Tree-sitter highlighting in VS Code's
+Light+ colours:
+
+![Light theme](docs/light.png)
+
+Interactive stdin: the program blocks in `std::getline`, and you type your
+answer straight into the console.
+
+![Waiting for input](docs/stdin_1.png)
+![Input answered](docs/stdin_2.png)
+
+`std::thread` on real Web Workers over one shared memory — note `-pthread` and
+`--shared-memory` appearing automatically, because *threads* is set to *auto*:
+
+![Threads](docs/threads.png)
+
+Clang's own diagnostics, colours and carets included:
+
+![Diagnostics](docs/diagnostics.png)
 
 ## Quick start
 
@@ -53,6 +82,8 @@ offline once loaded.
 - Stop button for runaway programs; resizable panes in both directions (drag a
   splitter, double-click one to reset)
 - Export the project as a `.zip` containing a real, buildable `CMakeLists.txt`
+- An *About* dialog with help, the keyboard shortcuts, and links to the source
+  and the release archive, so a hosted copy tells visitors how to run their own
 - Project state is kept in `localStorage`
 
 Download size is ~35 MB: clang 17.4 MB, wasm-ld 10.2 MB, sysroot 7.4 MB, all
@@ -142,6 +173,7 @@ in C, hence three lines of assembly, archived into our `libunwind.a`.
 ```
 serve.py             static server with COOP/COEP — run this to use the app
 .github/workflows/   CI and release packaging
+docs/                README screenshots
 dist/                committed, runnable output: the app + vendor/ toolchain
 src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   index.html

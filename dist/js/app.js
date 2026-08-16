@@ -52,6 +52,7 @@ inline std::string greeting(const std::string& who) {
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
     threads: $('selThreads'),
     status: $('status'),
+    about: $('btnAbout'), aboutDialog: $('about'),
   };
 
   let state = load();
@@ -147,11 +148,34 @@ inline std::string greeting(const std::string& who) {
     return session.getMode().$id === 'ace/mode/c_cpp';
   }
 
+  // Each session keeps its own token cache; sharing one across files meant only
+  // the file parsed last kept its colours.
+  const highlightCaches = new WeakMap();
+
+  function cacheFor(session) {
+    let cache = highlightCaches.get(session);
+    if (!cache) {
+      cache = { lines: [], lineText: [] };
+      highlightCaches.set(session, cache);
+    }
+    return cache;
+  }
+
+  // Ace joins lines with the document's newline character, which becomes 
+
+
+  // the moment CRLF text replaces the whole buffer. The highlighter compares
+  // against the lines Ace renders, so hand it those lines directly.
+  function sourceOf(session) {
+    return session.getDocument().getAllLines().join('\n');
+  }
+
   function applyHighlighter(session) {
     const hl = window.cppHighlighter;
     if (!hl || !isCpp(session)) return;
-    hl.update(session.getValue());
-    session.bgTokenizer.setTokenizer(hl.tokenizer());
+    const cache = cacheFor(session);
+    hl.update(sourceOf(session), cache);
+    session.bgTokenizer.setTokenizer(hl.tokenizer(cache));
     session.bgTokenizer.start(0);
   }
 
@@ -159,7 +183,7 @@ inline std::string greeting(const std::string& who) {
     if (!window.cppHighlighter || !isCpp(session)) return;
     clearTimeout(highlightTimer);
     highlightTimer = setTimeout(() => {
-      window.cppHighlighter.update(session.getValue());
+      window.cppHighlighter.update(sourceOf(session), cacheFor(session));
       session.bgTokenizer.start(0);
     }, 20);
   }
@@ -548,6 +572,9 @@ inline std::string greeting(const std::string& who) {
   el.stop.onclick = stop;
   el.zip.onclick = downloadZip;
   el.newFile.onclick = newFile;
+  el.about.onclick = () => el.aboutDialog.showModal();
+  // Clicking the backdrop lands on the dialog itself, never on its content.
+  el.aboutDialog.onclick = e => { if (e.target === el.aboutDialog) el.aboutDialog.close(); };
   el.clear.onclick = () => { el.console.textContent = ''; setStatus('idle'); };
   el.reset.onclick = () => {
     if (!confirm('Discard the current project and restore the example?')) return;

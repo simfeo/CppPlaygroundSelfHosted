@@ -84,20 +84,20 @@ ace.define("ace/theme/vscode_light", ["require", "exports", "module", "ace/lib/d
     exports.cssClass = "ace-vscode-light";
     exports.cssText = `
 .ace-vscode-light {
-  background-color: #ffffff;
+  background-color: #f8f8f8;   /* same surface as the output pane */
   color: #3b3b3b;
 }
 .ace-vscode-light .ace_gutter {
-  background: #ffffff;
+  background: #f8f8f8;
   color: #6e7681;
   border-right: 1px solid #e5e5e5;
 }
-.ace-vscode-light .ace_gutter-active-line { background-color: #f0f0f0; color: #333333; }
+.ace-vscode-light .ace_gutter-active-line { background-color: #ececec; color: #333333; }
 .ace-vscode-light .ace_fold { background-color: #0000ff; }
 .ace-vscode-light .ace_cursor { color: #000000; }
 .ace-vscode-light .ace_marker-layer .ace_selection { background: #add6ff; }
-.ace-vscode-light.ace_multiselect .ace_selection.ace_start { box-shadow: 0 0 3px 0 #ffffff; }
-.ace-vscode-light .ace_marker-layer .ace_active-line { background: #f0f0f0; }
+.ace-vscode-light.ace_multiselect .ace_selection.ace_start { box-shadow: 0 0 3px 0 #f8f8f8; }
+.ace-vscode-light .ace_marker-layer .ace_active-line { background: #ececec; }
 .ace-vscode-light .ace_marker-layer .ace_selected-word { border: 1px solid #add6ff; }
 .ace-vscode-light .ace_marker-layer .ace_bracket { border: 1px solid #b9b9b9; }
 .ace-vscode-light .ace_indent-guide {
