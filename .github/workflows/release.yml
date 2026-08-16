@@ -17,10 +17,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tag annotations do not exist in a shallow clone
 
       - name: Work out the version
         id: version
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from the tag annotation
+        # The annotation is where a release is actually described. Without this
+        # every release repeats the same blurb and says nothing about itself.
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag" 2>/dev/null || true
+          annotation=$(git for-each-ref "refs/tags/$tag" --format='%(contents)')
+          if [ -n "$(printf '%s' "$annotation" | tr -d '[:space:]')" ]; then
+            printf '%s\n\n' "$annotation" > notes.md
+          else
+            echo "::warning::$tag carries no annotation; using the generic blurb"
+            printf '%s\n\n' "A C++ playground that compiles and runs in the browser: clang 22.1.8 built for \`wasm32-wasi\`, with libc++, threads and exceptions." > notes.md
+          fi
+          {
+            echo '**To run it**'
+            echo
+            echo '```'
+            echo "unzip cpp-playground-$tag.zip"
+            echo "cd cpp-playground-$tag"
+            echo 'python serve.py'
+            echo '```'
+            echo
+            echo 'Then open <http://localhost:8080/>. Nothing is installed and nothing'
+            echo 'is compiled on the server - clang runs in your browser.'
+          } >> notes.md
+          echo '--- notes.md ---'; cat notes.md
 
       - name: Package the playground
         # Everything needed to run it: the built app and the server, nothing else.
@@ -47,17 +76,4 @@ jobs:
             cpp-playground-${{ steps.version.outputs.tag }}.zip
             cpp-playground-${{ steps.version.outputs.tag }}.tar.gz
             checksums.txt
-          body: |
-            A C++ playground that compiles and runs in the browser: clang 22.1.8
-            built for `wasm32-wasi`, with libc++, threads and exceptions.
-
-            **To run it**
-
-            ```
-            unzip cpp-playground-${{ steps.version.outputs.tag }}.zip
-            cd cpp-playground-${{ steps.version.outputs.tag }}
-            python serve.py
-            ```
-
-            Then open <http://localhost:8080/>. Nothing is installed and nothing
-            is compiled on the server - clang runs in your browser.
+          body_path: notes.md
