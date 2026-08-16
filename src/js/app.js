@@ -48,6 +48,7 @@ inline std::string greeting(const std::string& who) {
     newFile: $('btnNewFile'), fileList: $('fileList'), tabs: $('tabs'), theme: $('selTheme'),
     editor: $('editor'), console: $('console'), stdin: $('stdin'),
     prompt: $('prompt'), liveInput: $('liveInput'), args: $('txtArgs'),
+    sendLine: $('btnSendLine'), eof: $('btnEof'),
     stdinNote: $('stdinNote'),
     std: $('selStd'), opt: $('selOpt'), flags: $('txtFlags'), project: $('txtProject'),
     threads: $('selThreads'),
@@ -398,6 +399,18 @@ inline std::string greeting(const std::string& who) {
       sendLine(null); // end of input
     }
   });
+
+  // Phone keyboards often show no Enter key at all, and never a Ctrl+D, so the
+  // two buttons are the only route to stdin on mobile.
+  el.sendLine.onclick = () => sendLine(el.liveInput.value + '\n');
+  el.eof.onclick = () => sendLine(null);
+
+  // Same reason, one field over: committing a value must not depend on Enter.
+  for (const field of [el.args, el.flags, el.project]) {
+    field.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); field.blur(); }
+    });
+  }
 
   /* Terminating the worker is the only way to stop wasm: it cannot be
    * interrupted from outside, and it may be parked in Atomics.wait for input.

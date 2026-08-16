@@ -72,7 +72,8 @@
       </select>
     </label>
     <label class="grow">flags
-      <input id="txtFlags" type="text" placeholder="-Wall -DFOO=1" spellcheck="false">
+      <input id="txtFlags" type="text" placeholder="-Wall -DFOO=1" spellcheck="false"
+             autocapitalize="off" autocorrect="off" enterkeyhint="done">
     </label>
     <span class="sep"></span>
     <label>Theme:
@@ -177,14 +178,20 @@
       <pre id="console"></pre>
       <div id="prompt" hidden>
         <span class="prompt-caret">▶</span>
-        <input id="liveInput" spellcheck="false" autocomplete="off"
+        <!-- enterkeyhint labels the phone keyboard's action key; the buttons are
+             the only way in for keyboards that show none, and for Ctrl+D. -->
+        <input id="liveInput" spellcheck="false" autocomplete="off" autocapitalize="off"
+               enterkeyhint="send"
                placeholder="the program is waiting — type, then Enter (Ctrl+D ends input)">
+        <button id="btnSendLine" title="Send this line (Enter)">Send</button>
+        <button id="btnEof" title="End of input (Ctrl+D)">EOF</button>
       </div>
       <div class="splitter horizontal" id="splitBottom" title="Drag to resize, double-click to reset"></div>
       <div id="ioBottom">
         <div class="panel-head"><span>Arguments</span></div>
         <div class="pad">
           <input id="txtArgs" type="text" spellcheck="false"
+                 autocapitalize="off" autocorrect="off" enterkeyhint="done"
                  placeholder="argv, e.g. --verbose &quot;file name.txt&quot;">
         </div>
         <div class="panel-head"><span>Program input (stdin)</span><span id="stdinNote" class="note"></span></div>

@@ -226,6 +226,14 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
   color: var(--fg);
   outline: none;
 }
+/* Touch targets: 32px keeps them tappable without crowding the prompt line. */
+#prompt button {
+  flex: none;
+  padding: 4px 10px;
+  min-height: 32px;
+  font-size: 12px;
+}
+
 .status { font-size: 11px; text-transform: none; letter-spacing: 0; }
 .status.busy { color: var(--ansi-yellow); }
 .status.ok { color: var(--ansi-green); }
