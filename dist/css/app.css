@@ -136,10 +136,39 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
   background: var(--bg2);
 }
 
+/* Wide screens: the wrapper is invisible to layout and the two phone-only
+   buttons do not exist. */
+#toolbarControls { display: contents; }
+#btnControls, #btnFull { display: none; }
+/* Beats the media query below, so a browser without the Fullscreen API keeps
+   the button hidden. */
+#btnFull[hidden] { display: none; }
+
 /* Narrow screens: side-by-side leaves the editor a few pixels wide, so the panes
    stack instead. The horizontal splitters go away with the columns they divided;
    the output/stdin one still works. Panels.js stops writing inline widths here. */
+/* Any touch device, either orientation: vertical space is the scarce resource,
+   so the build options collapse behind a button and fullscreen reclaims the
+   address bar. Run and Stop stay put. A narrow desktop window gets this too. */
+@media (max-width: 700px), (pointer: coarse) {
+  #btnControls, #btnFull { display: inline-block; }
+  #toolbarControls {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  body.show-controls #toolbarControls { display: flex; }
+  #toolbarControls .sep { display: none; }
+}
+
+/* Narrow only: side by side leaves the editor a few pixels wide, so the panes
+   stack. Landscape phones are wide enough to keep the three columns.
+   Keep in sync with STACKED in panels.js. */
 @media (max-width: 700px) {
+  .brand { font-size: 12px; }
+
   #main { flex-direction: column; }
   #sidebar {
     width: auto;

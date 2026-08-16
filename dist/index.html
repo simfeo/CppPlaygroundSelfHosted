@@ -45,6 +45,13 @@
     <h1 class="brand">C++ Playground</h1>
     <button id="btnRun" class="primary">▶ Run <kbd>Ctrl+↵</kbd></button>
     <button id="btnStop" disabled title="Terminate the running program">■ Stop</button>
+    <!-- Phone-only: the build controls cost two toolbar rows that are better
+         spent on code, and the address bar costs another. -->
+    <button id="btnControls" aria-expanded="false" title="Show build options">⚙</button>
+    <button id="btnFull" title="Fullscreen">⛶</button>
+    <!-- display:contents on wide screens, so this wrapper does not disturb the
+         toolbar's flex layout; a real flex row once it can be collapsed. -->
+    <div id="toolbarControls">
     <span class="sep"></span>
     <label>std
       <select id="selStd">
@@ -86,6 +93,7 @@
     <button id="btnZip" title="Export your project as a zip with a CMakeLists.txt">⤓ Download .zip</button>
     <button id="btnReset">Reset</button>
     <button id="btnAbout" title="About this playground, help and downloads">? About</button>
+    </div>
   </header>
 
   <dialog id="about">

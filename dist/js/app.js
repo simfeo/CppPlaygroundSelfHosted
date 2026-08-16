@@ -54,6 +54,7 @@ inline std::string greeting(const std::string& who) {
     threads: $('selThreads'),
     status: $('status'),
     about: $('btnAbout'), aboutDialog: $('about'),
+    controls: $('btnControls'), full: $('btnFull'),
   };
 
   let state = load();
@@ -585,6 +586,27 @@ inline std::string greeting(const std::string& who) {
   el.stop.onclick = stop;
   el.zip.onclick = downloadZip;
   el.newFile.onclick = newFile;
+  el.controls.onclick = () => {
+    const shown = document.body.classList.toggle('show-controls');
+    el.controls.setAttribute('aria-expanded', String(shown));
+    el.controls.title = shown ? 'Hide build options' : 'Show build options';
+  };
+
+  // iOS Safari has no Element.requestFullscreen, so the button would be a lie.
+  if (!document.documentElement.requestFullscreen) {
+    el.full.hidden = true;
+  } else {
+    el.full.onclick = () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    };
+    document.addEventListener('fullscreenchange', () => {
+      const on = !!document.fullscreenElement;
+      el.full.textContent = on ? '⤡' : '⛶';
+      el.full.title = on ? 'Leave fullscreen' : 'Fullscreen';
+    });
+  }
+
   el.about.onclick = () => el.aboutDialog.showModal();
   // Clicking the backdrop lands on the dialog itself, never on its content.
   el.aboutDialog.onclick = e => { if (e.target === el.aboutDialog) el.aboutDialog.close(); };
