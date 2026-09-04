@@ -72,6 +72,10 @@ offline once loaded.
 - Full C++ standard library: libc++ built from the same LLVM release
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
+- **Crash backtraces**: a trap prints the call stack with demangled names and
+  `file:line:column`, read from the module's own name section and DWARF line
+  table. An uncaught exception reports its type and `what()` plus the stack at
+  the `throw`, not at the point it escaped
 - **Threads**: `std::thread` runs on real Web Workers sharing one memory, with
   working mutexes and atomics. The *threads* selector defaults to *auto*, which
   builds with `-pthread` only when the code uses threads
@@ -181,6 +185,8 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   js/app.js          UI: files, tabs, editor, console, zip export
   js/worker.js       compile/link/run driver
   js/wasi.js         WASI preview1 host with an in-memory filesystem
+  js/debuginfo.js    name section + DWARF line table reader, demangler,
+                     backtrace formatter
   js/tar.js          tar reader + gzip inflate
   js/panels.js       draggable splitters between the panes
   js/thread-worker.js  one spawned thread of a wasi-threads program
@@ -192,6 +198,9 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   queries/           our highlight query refinements
   vendor/ace/        vendored Ace editor (BSD-3, see its README)
   vendor/tree-sitter/  vendored parser + C/C++ grammar (MIT, see its README)
+runtime/
+  throw_shim.cpp     linked into every program via --wrap=__cxa_throw, so a
+                     throw is reported while its stack is still standing
 tools/
   build.py           copies src/ into dist/
   pack_sysroot.py    builds sysroot.tar.gz
@@ -234,6 +243,14 @@ cmake --build build --config Release
   filesystem: that lives in the run worker's heap and does not cross workers.
   `std::thread::hardware_concurrency()` reports 1, which is what wasi-libc says.
 - **No networking** in compiled programs.
+- **Backtraces need V8** (Chrome, Edge). They are built from the wasm frames in
+  a JS stack trace, which other engines do not yet provide; elsewhere a crash
+  still reports its cause, just without the stack.
+- A throw on a spawned thread reports its type and message, but not a stack:
+  the debug sections live with the run worker and do not cross workers.
+- **No breakpoints or stepping.** WebAssembly gives the host no way to pause a
+  running module; for that, build with `-g` and use Chrome DevTools with the
+  C/C++ debugging extension.
 - Exceptions need a browser with the standardized wasm EH proposal (Chrome 95+,
   Firefox 131+, Safari 18.4+).
 - The generated `CMakeLists.txt` targets a native compiler, not the in-browser

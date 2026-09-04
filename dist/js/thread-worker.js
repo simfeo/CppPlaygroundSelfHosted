@@ -11,7 +11,7 @@
  * to stdout and stderr are forwarded to the run worker instead.
  */
 
-self.importScripts('wasi.js');
+self.importScripts('wasi.js', 'debuginfo.js');
 
 self.onmessage = async (event) => {
   const { module, memory, tid, startArg } = event.data;
@@ -28,9 +28,22 @@ self.onmessage = async (event) => {
 
   // A thread may itself spawn threads. Like the run worker, it asks the page to
   // do it: this worker blocks too, so it could not service a child of its own.
+  // The module is linked with --wrap=__cxa_throw and imports this, so a thread
+  // instance has to supply it too or instantiation fails outright. A throw on a
+  // spawned thread cannot be symbolized here (the debug sections live with the
+  // run worker), but the type and message are worth keeping for the error line.
+  let threw = null;
+  const onThrow = (type, what) => {
+    threw = {
+      type: DebugInfo.readCString(memory, type),
+      what: DebugInfo.readCString(memory, what),
+    };
+  };
+
   let nested = 0;
   const imports = {
     ...wasi.imports,
+    playground: { on_throw: onThrow },
     env: { memory },
     wasi: {
       'thread-spawn': (arg) => {
@@ -48,7 +61,10 @@ self.onmessage = async (event) => {
   } catch (e) {
     // A thread that calls exit() unwinds through proc_exit; that is not an error.
     if (!(e && e.constructor && e.constructor.name === 'ProcExit')) {
-      self.postMessage({ id: 'write', data: `\n\x1b[91mthread ${tid}: ${e}\x1b[0m\n` });
+      const detail = threw
+        ? `uncaught ${DebugInfo.demangleType(threw.type)}${threw.what ? ': ' + threw.what : ''}`
+        : String(e);
+      self.postMessage({ id: 'write', data: `\n\x1b[91mthread ${tid}: ${detail}\x1b[0m\n` });
     }
   }
   self.postMessage({ id: 'thread-exit', tid });

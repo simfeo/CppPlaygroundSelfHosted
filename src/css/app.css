@@ -13,6 +13,10 @@
   --hover: #2a2d2e;
   --mono: ui-monospace, "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
 
+  /* Panel heads and the tab strip sit side by side across the three panes, so
+     their rules only line up if both are pinned to the same height. */
+  --head-h: 25px;
+
   /* clang's diagnostic colours, as a terminal would render them */
   --ansi-black: #6e7681;  --ansi-red: #f14c4c;     --ansi-green: #23d18b;
   --ansi-yellow: #f5f543; --ansi-blue: #3b8eea;    --ansi-magenta: #d670d6;
@@ -191,7 +195,8 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  height: var(--head-h);
+  padding: 0 8px;
   background: var(--bg3);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
@@ -224,9 +229,11 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
 #fileList li:hover button { visibility: visible; }
 
 /* Tabs */
-#tabs { display: flex; overflow-x: auto; background: var(--bg2); border-bottom: 1px solid var(--border); flex: none; }
+#tabs { display: flex; height: var(--head-h); overflow-x: auto; background: var(--bg2); border-bottom: 1px solid var(--border); flex: none; }
 #tabs .tab {
-  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   border-right: 1px solid var(--border);
   cursor: pointer;
   font-family: var(--mono);

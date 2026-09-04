@@ -6,7 +6,10 @@
  * object files one produces are the files the next one reads.
  */
 
-self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js');
+self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js', 'debuginfo.js');
+
+// V8 keeps 10 frames by default, which a C++ call chain blows through easily.
+Error.stackTraceLimit = 64;
 
 const VENDOR = '../vendor/';
 const SOURCE_EXT = /\.(c|cc|cpp|cxx|c\+\+)$/i;
@@ -19,9 +22,17 @@ const TARGET_THREADS = 'wasm32-wasip1-threads';
 const THREAD_INITIAL_PAGES = 512;    // 32 MiB
 const THREAD_MAX_PAGES = 4096;       // 256 MiB
 
+// Compiled once per target and kept outside /work, which is wiped between runs.
+// The two targets cannot share an object file: one has atomics and shared
+// memory in its ABI and the other does not.
+const SHIM_URL = '../runtime/throw_shim.cpp';
+const SHIM_SOURCE = '/opt/throw_shim.cpp';
+
 let fs = null;
 let resourceDir = null;      // /lib/clang/<version>, discovered from the sysroot
+let lastThrow = null;        // most recent throw reported by the shim, if any
 const modules = new Map();
+const shims = new Map();     // target -> object path
 
 function post(msg) { self.postMessage(msg); }
 function write(s) { post({ id: 'write', data: s }); }
@@ -75,7 +86,7 @@ async function loadSysroot() {
 // Runs a WASI program to completion. Throws on a non-zero exit.
 async function run(moduleName, argv0, args, options = {}) {
   const module = await getModule(moduleName);
-  log(`${[argv0, ...args].join(' ')}\n`);
+  if (!options.quiet) log(`${[argv0, ...args].join(' ')}\n`);
 
   const wasi = new WASI({
     fs,
@@ -130,6 +141,9 @@ async function compile(file, opts, incDirs) {
       '-nostdinc++', '-isystem', opts.threads ? '/include/c++/v1-threads' : '/include/c++/v1',
     ]),
     `-O${opts.opt}`,
+    // Line tables only: enough for debuginfo.js to name a crash site, without
+    // the variable and type DIEs that make full -g several times the size.
+    '-gline-tables-only',
     '-fcolor-diagnostics',
     ...incDirs.map(d => `-I${d}`),
     ...splitFlags(opts.flags),
@@ -137,6 +151,39 @@ async function compile(file, opts, incDirs) {
     '/work/' + file.path,
   ]);
   return obj;
+}
+
+// The shim never changes, so each target's object is built once per worker and
+// reused by every later run.
+async function ensureShim(opts) {
+  const target = opts.threads ? TARGET_THREADS : TARGET;
+  if (shims.has(target)) return shims.get(target);
+
+  const response = await fetch(SHIM_URL);
+  if (!response.ok) throw new Error(`cannot fetch ${SHIM_URL}: HTTP ${response.status}`);
+  fs.mkdirp('/opt');
+  fs.writeFile(SHIM_SOURCE, await response.text());
+
+  const object = `/opt/throw_shim-${target}.o`;
+  // Settle clang's own load message first: timed() writes progress inline, so
+  // two of them overlapping produce one interleaved line.
+  await getModule('clang.wasm');
+  await timed('preparing crash reporting', run('clang.wasm', '/bin/clang', [
+    `--target=${target}`,
+    ...(opts.threads ? ['-pthread'] : []),
+    '--sysroot=/',
+    `-resource-dir=${resourceDir}`,
+    '-c',
+    '-std=c++17',
+    '-O1',
+    '-fwasm-exceptions', '-mllvm', '-wasm-use-legacy-eh=false',
+    '-nostdinc++', '-isystem', opts.threads ? '/include/c++/v1-threads' : '/include/c++/v1',
+    '-o', object,
+    SHIM_SOURCE,
+  ], { quiet: true }));
+
+  shims.set(target, object);
+  return object;
 }
 
 async function link(objs, out, opts) {
@@ -149,6 +196,8 @@ async function link(objs, out, opts) {
     `-L${libdir}`,
     `${libdir}/crt1.o`,
     ...objs,
+    shims.get(target),
+    '--wrap=__cxa_throw',
     '-lc', '-lc++', '-lc++abi', '-lunwind', '-lm',
     builtins,
     '-z', 'stack-size=1048576',
@@ -229,6 +278,8 @@ async function build(payload) {
   const opts = payload.options;
 
   await loadSysroot();
+  await ensureShim(opts);
+  lastThrow = null;
 
   // Fresh project tree each run; the sysroot stays as it was unpacked.
   fs.unlink('/work');
@@ -276,29 +327,82 @@ async function build(payload) {
     stdin: makeStdin(stdin || ''),
   });
 
-  const imports = opts.threads
-    ? { ...wasi.imports, env: { memory }, wasi: { 'thread-spawn': spawnThread(module, memory) } }
-    : wasi.imports;
+  let instance = null;
+  const imports = {
+    ...wasi.imports,
+    playground: {
+      on_throw(type, what) {
+        // The Error is only here for its stack: the shim calls this from the
+        // frame that threw, so it still holds the whole chain below it.
+        lastThrow = {
+          type: DebugInfo.readCString(memory || (instance && instance.exports.memory), type),
+          what: DebugInfo.readCString(memory || (instance && instance.exports.memory), what),
+          error: new Error('throw'),
+        };
+      },
+    },
+    ...(opts.threads
+      ? { env: { memory }, wasi: { 'thread-spawn': spawnThread(module, memory) } }
+      : {}),
+  };
 
-  const instance = await WebAssembly.instantiate(module, imports);
+  instance = await WebAssembly.instantiate(module, imports);
   let code;
   try {
     code = wasi.start(instance);
   } catch (e) {
     stopThreads();
-    // With standard wasm EH an uncaught C++ exception unwinds out of _start and
-    // arrives here as a WebAssembly.Exception, whose default text says nothing.
-    if (typeof WebAssembly.Exception === 'function' && e instanceof WebAssembly.Exception) {
-      const hint = opts.threads ? ''
-        : '\nIf it came from std::thread, tick the "threads" box and run again.';
-      throw new Error('the program threw a C++ exception that nothing caught'
-        + ' (std::terminate)' + hint);
-    }
-    throw e;
+    reportCrash(e, binary, opts);
+    return TRAP_EXIT;
   }
   stopThreads();
   if (code !== 0) write(`\n\x1b[91mprogram exited with code ${code}\x1b[0m\n`);
   return code;
+}
+
+// Matches the shell's convention for a process killed by a signal, which is
+// what a trap is the wasm equivalent of.
+const TRAP_EXIT = 134;
+
+function reportCrash(error, binary, opts) {
+  // With standard wasm EH an uncaught C++ exception is not a trap: it unwinds
+  // out of _start and arrives as a WebAssembly.Exception, which carries no JS
+  // stack. What the throw shim recorded on the way past is used instead.
+  if (typeof WebAssembly.Exception === 'function' && error instanceof WebAssembly.Exception) {
+    write('\n\x1b[91mprogram crashed: uncaught exception (std::terminate)\x1b[0m\n');
+    // The hint only earns its place when there is no backtrace to point at;
+    // with one, the throw site already says whether threads were involved.
+    if (!lastThrow) {
+      write('\x1b[90m(nothing was recorded at the throw, so there is no backtrace)\x1b[0m\n');
+      if (!opts.threads) {
+        write('\x1b[90m(if it came from std::thread, tick the "threads" box and run again)\x1b[0m\n');
+      }
+      return;
+    }
+    const type = DebugInfo.demangleType(lastThrow.type) || 'unknown type';
+    write(`\x1b[91m  ${type}${lastThrow.what ? ': ' + lastThrow.what : ''}\x1b[0m\n`);
+    writeBacktrace(lastThrow.error, binary);
+    return;
+  }
+  const trap = error instanceof WebAssembly.RuntimeError
+    ? error.message
+    : (error && error.message) || String(error);
+  write(`\n\x1b[91mprogram crashed: ${trap}\x1b[0m\n`);
+  writeBacktrace(error, binary);
+}
+
+// The debug sections are only read here: parsing them costs more than most
+// programs take to run, and a run that ends normally never needs them.
+function writeBacktrace(error, binary) {
+  let text = null;
+  try {
+    text = DebugInfo.backtrace(error, DebugInfo.parse(binary));
+  } catch (e) {
+    write(`\x1b[90m(could not read debug info: ${e.message})\x1b[0m\n`);
+    return;
+  }
+  if (text) write(`\n${text}\n`);
+  else write('\x1b[90m(no wasm frames in the stack trace)\x1b[0m\n');
 }
 
 self.onmessage = async (event) => {
