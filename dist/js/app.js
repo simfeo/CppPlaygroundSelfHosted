@@ -55,11 +55,17 @@ inline std::string greeting(const std::string& who) {
     status: $('status'),
     about: $('btnAbout'), aboutDialog: $('about'),
     controls: $('btnControls'), full: $('btnFull'),
+    debug: $('btnDebug'), dbgBar: $('dbgBar'), dbgPanels: $('dbgPanels'),
+    dbgStack: $('dbgStack'), dbgVars: $('dbgVars'), dbgWhere: $('dbgWhere'),
+    dbgContinue: $('dbgContinue'), dbgStepOver: $('dbgStepOver'),
+    dbgStepIn: $('dbgStepIn'), dbgStepOut: $('dbgStepOut'),
   };
 
   let state = load();
   let worker = null;
   let running = false;
+  let debugging = false;      // this run was started by the Debug button
+  let stoppedFrame = 0;       // which frame the variables panel is showing
 
   /* ---------- theme ---------- */
 
@@ -108,7 +114,7 @@ inline std::string greeting(const std::string& who) {
   editor.commands.addCommand({
     name: 'run',
     bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
-    exec: () => run(),
+    exec: () => run(false),
   });
 
   // One session per file keeps undo history, cursor and scroll position
@@ -255,6 +261,7 @@ inline std::string greeting(const std::string& who) {
     }
 
     editor.setSession(sessionFor(active));
+    if (typeof paintBreakpoints === 'function') paintBreakpoints();
   }
 
   function selectFile(path) {
@@ -351,6 +358,173 @@ inline std::string greeting(const std::string& who) {
     el.status.className = 'status' + (kind ? ' ' + kind : '');
   }
 
+
+  /* ---------- debugger ---------- */
+
+  const dbg = Debugger.create({
+    onReady: () => paintBreakpoints(),
+    onStopped: (payload) => {
+      stoppedFrame = 0;
+      setStatus('stopped', 'busy');
+      renderStop(payload);
+      setDebugControls(true);
+    },
+    onResumed: () => {
+      el.dbgWhere.textContent = 'running';
+      clearStopMarker();
+      setDebugControls(false);
+    },
+    onEnded: () => endDebugUi(),
+  });
+
+  function setDebugControls(stopped) {
+    for (const b of [el.dbgContinue, el.dbgStepOver, el.dbgStepIn, el.dbgStepOut]) {
+      b.disabled = !stopped;
+    }
+  }
+
+  function startDebugUi() {
+    el.dbgBar.hidden = false;
+    el.dbgPanels.hidden = false;
+    setDebugControls(false);
+    el.dbgWhere.textContent = 'starting';
+  }
+
+  function endDebugUi() {
+    debugging = false;
+    el.dbgBar.hidden = true;
+    el.dbgPanels.hidden = true;
+    clearStopMarker();
+  }
+
+  // Held with the session it belongs to: the marker often outlives the visible
+  // file, because stepping into another file switches the editor underneath it.
+  let stopMarker = null;
+
+  function clearStopMarker() {
+    if (!stopMarker) return;
+    stopMarker.session.removeMarker(stopMarker.id);
+    stopMarker = null;
+    editor.renderer.updateFull(true);
+  }
+
+  function renderStop(payload) {
+    const frames = payload.frames || [];
+    el.dbgWhere.textContent = frames.length
+      ? `${frames[0].name} at ${short(frames[0].path)}:${frames[0].line}`
+      : 'stopped';
+
+    el.dbgStack.innerHTML = '';
+    frames.forEach((f, i) => {
+      const li = document.createElement('li');
+      li.className = i === stoppedFrame ? 'active' : '';
+      li.textContent = `#${i}  ${f.name}  ${short(f.path)}:${f.line}`;
+      li.onclick = () => { stoppedFrame = i; renderStop(payload); showFrameSource(f); };
+      el.dbgStack.appendChild(li);
+    });
+
+    renderVars(frames[stoppedFrame]);
+    if (frames[stoppedFrame]) showFrameSource(frames[stoppedFrame]);
+  }
+
+  function short(path) { return String(path || '').replace(/^\/work\//, ''); }
+
+  function showFrameSource(frame) {
+    if (!frame || !frame.path) return;
+    const path = short(frame.path);
+    if (state.active !== path && file(path)) selectFile(path);
+    clearStopMarker();
+    const Range = ace.require('ace/range').Range;
+    const session = editor.getSession();
+    stopMarker = {
+      session,
+      id: session.addMarker(new Range(frame.line - 1, 0, frame.line - 1, 1),
+        'dbg-current-line', 'fullLine'),
+    };
+    editor.scrollToLine(frame.line - 1, true, true, () => {});
+    editor.gotoLine(frame.line, 0, false);
+    // An incremental repaint leaves a freshly added marker undrawn.
+    editor.renderer.updateFull(true);
+  }
+
+  function renderVars(frame) {
+    el.dbgVars.innerHTML = '';
+    const locals = (frame && frame.locals) || [];
+    if (!locals.length) {
+      const li = document.createElement('li');
+      li.className = 'muted';
+      li.textContent = frame && frame.frame ? 'no locals in scope' : 'no frame information';
+      el.dbgVars.appendChild(li);
+      return;
+    }
+    for (const v of locals) el.dbgVars.appendChild(varRow(v, 0));
+  }
+
+  function varRow(v, depth) {
+    const li = document.createElement('li');
+    li.style.paddingLeft = (depth * 12) + 'px';
+    const has = v.children && v.children.length;
+
+    const twisty = document.createElement('span');
+    twisty.className = 'twisty';
+    twisty.textContent = has ? '\u25b8' : '';
+    li.appendChild(twisty);
+
+    const name = document.createElement('span');
+    name.className = 'var-name' + (v.isParam ? ' param' : '');
+    name.textContent = v.name;
+    li.appendChild(name);
+
+    const type = document.createElement('span');
+    type.className = 'var-type';
+    type.textContent = v.type;
+    li.appendChild(type);
+
+    const value = document.createElement('span');
+    value.className = 'var-value';
+    value.textContent = v.value;
+    li.appendChild(value);
+
+    if (has) {
+      let open = false;
+      const kids = [];
+      li.onclick = (e) => {
+        e.stopPropagation();
+        open = !open;
+        twisty.textContent = open ? '\u25be' : '\u25b8';
+        if (open) {
+          let after = li;
+          for (const child of v.children) {
+            const row = varRow(child, depth + 1);
+            after.after(row);
+            after = row;
+            kids.push(row);
+          }
+        } else {
+          while (kids.length) kids.pop().remove();
+        }
+      };
+    }
+    return li;
+  }
+
+  /* Breakpoints are toggled from Ace's gutter and drawn back onto it. */
+  function paintBreakpoints() {
+    const session = editor.getSession();
+    session.clearBreakpoints();
+    for (const line of dbg.linesFor(state.active)) session.setBreakpoint(line - 1, 'ace_breakpoint');
+  }
+
+  editor.on('guttermousedown', (e) => {
+    const target = e.domEvent.target;
+    if (!/ace_gutter-cell/.test(target.className)) return;
+    const row = e.getDocumentPosition().row;
+    const result = dbg.toggle(state.active, row + 1);
+    e.stop();
+    if (!result) return;
+    paintBreakpoints();
+  });
+
   /* ---------- build & run ---------- */
 
   /* ---------- live stdin ---------- */
@@ -423,6 +597,7 @@ inline std::string greeting(const std::string& who) {
       worker = null;
     }
     stopThreadWorkers();
+    dbg.end();
     running = false;
     el.run.disabled = false;
     el.stop.disabled = true;
@@ -473,11 +648,20 @@ inline std::string greeting(const std::string& who) {
         spawnThreadWorker(data);
       } else if (id === 'threads-done') {
         stopThreadWorkers();
+      } else if (id === 'dbg-session') {
+        dbg.begin(data);
+      } else if (id === 'dbg-stopped') {
+        dbg.onStop(data);
+      } else if (id === 'dbg-running') {
+        el.dbgWhere.textContent = 'running';
+      } else if (id === 'dbg-ended') {
+        dbg.end();
       } else if (id === 'done') {
         running = false;
         el.run.disabled = false;
         el.stop.disabled = true;
         stopThreadWorkers();
+        dbg.end();
         showPrompt(false);
         setRunningInputs(false);
         if (data.ok) {
@@ -503,11 +687,13 @@ inline std::string greeting(const std::string& who) {
     return worker;
   }
 
-  function run() {
+  function run(underDebugger) {
     if (running) return;
     collectOptions();
     save();
 
+    debugging = !!underDebugger;
+    if (debugging) startDebugUi(); else endDebugUi();
     running = true;
     el.run.disabled = true;
     el.stop.disabled = false;
@@ -521,7 +707,11 @@ inline std::string greeting(const std::string& who) {
         files: state.files.map(f => ({ path: f.path, content: f.content })),
         stdin: state.stdin,
         args: state.args,
-        options: { std: state.std, opt: state.opt, flags: state.flags, threads: useThreads() },
+        options: {
+          std: state.std, opt: state.opt, flags: state.flags,
+          threads: debugging ? false : useThreads(),
+          debug: debugging,
+        },
       }
     });
   }
@@ -582,8 +772,13 @@ inline std::string greeting(const std::string& who) {
   });
 
   el.theme.addEventListener('change', selectTheme);
-  el.run.onclick = run;
+  el.run.onclick = () => run(false);
   el.stop.onclick = stop;
+  el.debug.onclick = () => run(true);
+  el.dbgContinue.onclick = () => dbg.continueRun();
+  el.dbgStepOver.onclick = () => dbg.stepOver();
+  el.dbgStepIn.onclick = () => dbg.stepIn();
+  el.dbgStepOut.onclick = () => dbg.stepOut();
   el.zip.onclick = downloadZip;
   el.newFile.onclick = newFile;
   el.controls.onclick = () => {

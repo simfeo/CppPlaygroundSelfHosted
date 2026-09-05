@@ -537,6 +537,10 @@
     return {
       hasNames: names.size > 0,
       hasLines: rows.length > 0,
+      rows,                        // the debugger picks its stop points from these
+      custom,                      // raw DWARF sections, for the variable reader
+      code,                        // code section bounds, for address-space fixups
+      bias,                        // .debug_info carries the same code-relative addresses
       name(index) { return names.get(index) || null; },
       lookup(address) {
         let lo = 0, hi = rows.length - 1, found = -1;
@@ -569,7 +573,7 @@
 
   // Runtime scaffolding above the user's code: dropped until the first real
   // frame, so the crash site is the line the reader looks at first.
-  const NOISE = /^(_start|__wasm_call_ctors|abort|_Exit|__cxa_|__wrap___cxa_|__assert)/;
+  const NOISE = /^(_start|__wasm_call_ctors|abort|_Exit|__cxa_|__wrap___cxa_|__dbg_line|__assert)/;
 
   // wasi-libc renames main when it wraps it, so the deepest frame the user
   // wrote carries a name they would not recognise.
@@ -584,26 +588,38 @@
     return frames(error).some(f => ABORT.test(info.name(f.index) || ''));
   }
 
-  function backtrace(error, info) {
-    const stack = frames(error);
-    if (!stack.length) return null;
-
-    const lines = [];
-    let shown = 0;
-    for (const frame of stack) {
+  /* Structured frames, innermost first. `remap` turns a PC in a rewritten
+   * module back into one the debug sections describe; without it addresses are
+   * used as they come. */
+  function callFrames(error, info, options) {
+    const remap = (options && options.remap) || ((pc) => pc);
+    const out = [];
+    for (const frame of frames(error)) {
       const raw = info.name(frame.index);
-      if (shown === 0 && raw && NOISE.test(raw)) continue;
-      const name = raw ? (MAIN.test(raw) ? 'main' : demangle(raw)) : 'wasm-function[' + frame.index + ']';
-      const row = info.lookup(frame.address);
-      const where = row
-        ? shortPath(row.path) + ':' + row.line + (row.column ? ':' + row.column : '')
-        : '0x' + frame.address.toString(16);
-      lines.push('  \x1b[90m' + ('#' + shown).padEnd(3) + '\x1b[0m ' +
-        name + '\n        \x1b[90mat\x1b[0m \x1b[96m' + where + '\x1b[0m');
-      shown++;
+      if (!out.length && raw && NOISE.test(raw)) continue;
+      const row = info.lookup(remap(frame.address));
+      out.push({
+        name: raw ? (MAIN.test(raw) ? 'main' : demangle(raw)) : 'wasm-function[' + frame.index + ']',
+        path: row ? row.path : null,
+        line: row ? row.line : 0,
+        column: row ? row.column : 0,
+        address: frame.address,
+      });
       if (raw && MAIN.test(raw)) break;      // below main is only crt startup
     }
-    return lines.length ? lines.join('\n') : null;
+    return out;
+  }
+
+  function backtrace(error, info, options) {
+    const stack = callFrames(error, info, options);
+    if (!stack.length) return null;
+    return stack.map((f, i) => {
+      const where = f.path
+        ? shortPath(f.path) + ':' + f.line + (f.column ? ':' + f.column : '')
+        : '0x' + f.address.toString(16);
+      return '  \x1b[90m' + ('#' + i).padEnd(3) + '\x1b[0m ' + f.name +
+        '\n        \x1b[90mat\x1b[0m \x1b[96m' + where + '\x1b[0m';
+    }).join('\n');
   }
 
   // Reads a NUL-terminated string out of a module's linear memory. The extra
@@ -630,5 +646,6 @@
     }
   }
 
-  global.DebugInfo = { parse, demangle, demangleType, backtrace, abortedThrough, readCString };
+  global.DebugInfo = { parse, demangle, demangleType, backtrace, callFrames,
+    abortedThrough, readCString, shortPath };
 })(typeof self !== 'undefined' ? self : this);

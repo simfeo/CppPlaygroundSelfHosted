@@ -72,6 +72,10 @@ offline once loaded.
 - Full C++ standard library: libc++ built from the same LLVM release
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
+- **A source-level debugger**: breakpoints in the gutter, step over / into /
+  out, a call stack you can click through, and local variables with their real
+  types, expanded member by member. It runs in the page; no extension, no
+  external debugger
 - **Crash backtraces**: a trap prints the call stack with demangled names and
   `file:line:column`, read from the module's own name section and DWARF line
   table. An uncaught exception reports its type and `what()` plus the stack at
@@ -187,6 +191,11 @@ src/                 the app sources (plain HTML/CSS/JS, no build step, no deps)
   js/wasi.js         WASI preview1 host with an in-memory filesystem
   js/debuginfo.js    name section + DWARF line table reader, demangler,
                      backtrace formatter
+  js/dwarfinfo.js    DWARF .debug_info reader: functions, variables, types,
+                     and reading their values out of the program's memory
+  js/dbgrewrite.js   splices stop points into the linked module
+  js/dbgsession.js   the worker's half of the debugger: stopping and stepping
+  js/debugger.js     the page's half: breakpoints and commands
   js/tar.js          tar reader + gzip inflate
   js/panels.js       draggable splitters between the panes
   js/thread-worker.js  one spawned thread of a wasi-threads program
@@ -248,9 +257,21 @@ cmake --build build --config Release
   still reports its cause, just without the stack.
 - A throw on a spawned thread reports its type and message, but not a stack:
   the debug sections live with the run worker and do not cross workers.
-- **No breakpoints or stepping.** WebAssembly gives the host no way to pause a
-  running module; for that, build with `-g` and use Chrome DevTools with the
-  C/C++ debugging extension.
+- **The debugger needs a cross-origin isolated server**, for the same reason
+  interactive stdin does: stopping the program parks its worker in
+  `Atomics.wait`, which needs SharedArrayBuffer.
+- **Debug builds are always `-O0 -g`**, whatever the toolbar says. At any higher
+  level the variables are in wasm locals or gone altogether, and neither can be
+  read back.
+- **Threads cannot be debugged yet**: every thread would need its own stop
+  points and its own control block. Debug runs are built single-threaded.
+- A variable whose *value* the compiler put in a wasm local reads as
+  `<value is in a wasm local>`. Nothing outside a module can read another
+  frame's locals, so this is a limit of WebAssembly rather than of the reader.
+  Variables merely *addressed* through a local, such as a struct passed by
+  value, are read normally: the program reports the address on its way past.
+- Only your own files carry stop points, so stepping does not descend into
+  libc++. There is no expression evaluation or watch window.
 - Exceptions need a browser with the standardized wasm EH proposal (Chrome 95+,
   Firefox 131+, Safari 18.4+).
 - The generated `CMakeLists.txt` targets a native compiler, not the in-browser

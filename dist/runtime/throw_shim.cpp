@@ -18,6 +18,39 @@
 
 extern "C" {
 
+/*
+ * The debugger's stop point.
+ *
+ * dbgrewrite.js splices "i32.const <id>; call __dbg_line" into the linked
+ * module at the code offset of every user source line. That works only because
+ * this function is already defined here at link time: adding an import to a
+ * finished module would shift every function index in it, and with them every
+ * call, table entry and name-section record. A defined function costs one
+ * export and shifts nothing.
+ */
+__attribute__((import_module("playground"), import_name("on_line")))
+void playground_on_line(unsigned id, unsigned frame);
+
+/*
+ * `frame` is the function's own frame base, which the rewriter loads from the
+ * wasm local DWARF names in DW_AT_frame_base and passes in. It has to arrive
+ * this way: locations are DW_OP_fbreg offsets from that base, and a wasm local
+ * is not something a JavaScript host can read out of a live frame.
+ */
+void __dbg_line(unsigned id, unsigned frame) { playground_on_line(id, frame); }
+
+__attribute__((import_module("playground"), import_name("on_local")))
+void playground_on_local(unsigned slot, unsigned value);
+
+/*
+ * Some variables are not at an offset from the frame base but at an address
+ * held in a wasm local: a struct passed by value is described as
+ * DW_OP_WASM_location <local>, with no DW_OP_stack_value, meaning the local
+ * holds where the object is rather than what it is. The rewriter emits one call
+ * to this per such local, just before the __dbg_line for that source line.
+ */
+void __dbg_local(unsigned slot, unsigned value) { playground_on_local(slot, value); }
+
 void __real___cxa_throw(void *object, void *type, void (*destructor)(void *));
 
 __attribute__((import_module("playground"), import_name("on_throw")))

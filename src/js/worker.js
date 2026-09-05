@@ -6,7 +6,7 @@
  * object files one produces are the files the next one reads.
  */
 
-self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js', 'debuginfo.js');
+self.importScripts('wasi.js', 'tar.js', 'stdin-channel.js', 'debuginfo.js', 'dbgrewrite.js', 'dbgsession.js', 'dwarfinfo.js');
 
 // V8 keeps 10 frames by default, which a C++ call chain blows through easily.
 Error.stackTraceLimit = 64;
@@ -31,6 +31,7 @@ const SHIM_SOURCE = '/opt/throw_shim.cpp';
 let fs = null;
 let resourceDir = null;      // /lib/clang/<version>, discovered from the sysroot
 let lastThrow = null;        // most recent throw reported by the shim, if any
+let programInstance = null;  // the running program, for the debugger's memory reads
 const modules = new Map();
 const shims = new Map();     // target -> object path
 
@@ -140,10 +141,13 @@ async function compile(file, opts, incDirs) {
       '-fwasm-exceptions', '-mllvm', '-wasm-use-legacy-eh=false',
       '-nostdinc++', '-isystem', opts.threads ? '/include/c++/v1-threads' : '/include/c++/v1',
     ]),
-    `-O${opts.opt}`,
-    // Line tables only: enough for debuginfo.js to name a crash site, without
-    // the variable and type DIEs that make full -g several times the size.
-    '-gline-tables-only',
+    // Debugging needs the variable and type DIEs, and needs them at -O0: an
+    // optimised build has locals in wasm locals or gone entirely, and neither
+    // can be read back. DWARF 4 keeps strings and addresses inline, where 5
+    // would send them through .debug_str_offsets and .debug_addr.
+    ...(opts.debug
+      ? ['-O0', '-g', '-gdwarf-4']
+      : [`-O${opts.opt}`, '-gline-tables-only']),
     '-fcolor-diagnostics',
     ...incDirs.map(d => `-I${d}`),
     ...splitFlags(opts.flags),
@@ -198,6 +202,10 @@ async function link(objs, out, opts) {
     ...objs,
     shims.get(target),
     '--wrap=__cxa_throw',
+    // Kept alive and locatable: the debugger's rewriter splices calls to it and
+    // finds its index in the export section.
+    '--export=__dbg_line',
+    '--export=__dbg_local',
     '-lc', '-lc++', '-lc++abi', '-lunwind', '-lm',
     builtins,
     '-z', 'stack-size=1048576',
@@ -307,9 +315,40 @@ async function build(payload) {
   const wasm = '/work/a.out.wasm';
   await link(objs, wasm, opts);
 
-  const binary = fs.readFile(wasm);
-  if (!binary) throw new Error('link produced no output');
-  const module = await WebAssembly.compile(binary);
+  const linked = fs.readFile(wasm);
+  if (!linked) throw new Error('link produced no output');
+
+  // In debug mode the linked module is rewritten to call __dbg_line at every
+  // user source line; `binary` stays the original so DWARF lookups line up.
+  const binary = linked;
+  let session = null;
+  let rewrite = null;
+  let runnable = linked;
+  if (opts.debug) {
+    if (opts.threads) throw new Error('the debugger does not support threaded builds yet');
+    if (typeof SharedArrayBuffer !== 'function') {
+      throw new Error('the debugger needs a cross-origin isolated server (COOP/COEP) for SharedArrayBuffer');
+    }
+    const info = DebugInfo.parse(linked);
+    if (!info.hasLines) throw new Error('no line table: cannot debug this build');
+    const dwarf = DwarfInfo.parse(info.custom, info.bias);
+    if (dwarf) dwarf.snapTo(DbgRewrite.bodies(linked));
+    rewrite = DbgRewrite.instrument(linked, info.rows, {
+      frameBase: (pc) => (dwarf ? dwarf.frameBaseAt(pc) : null),
+      localSlots: (pc) => (dwarf ? dwarf.wasmLocalsAt(pc) : []),
+    });
+    if (!rewrite.instrumented) throw new Error('no debuggable lines found in your sources');
+    runnable = rewrite.binary;
+    session = DbgSession.create({
+      post,
+      points: rewrite.points,
+      info,
+      dwarf,
+      memory: () => (programInstance ? programInstance.exports.memory : null),
+    });
+    post({ id: 'dbg-session', data: { sab: session.sab, layout: session.layout, points: rewrite.points } });
+  }
+  const module = await WebAssembly.compile(runnable);
 
   const argv = ['a.out', ...splitArgs(payload.args)];
   log(`running${argv.length > 1 ? ' ' + argv.slice(1).join(' ') : ''}\n\n`);
@@ -328,9 +367,16 @@ async function build(payload) {
   });
 
   let instance = null;
+  programInstance = null;
   const imports = {
     ...wasi.imports,
     playground: {
+      on_line(id, framePointer) {
+        if (session) session.onLine(id, framePointer);
+      },
+      on_local(slot, value) {
+        if (session) session.onLocal(slot, value);
+      },
       on_throw(type, what) {
         // The Error is only here for its stack: the shim calls this from the
         // frame that threw, so it still holds the whole chain below it.
@@ -347,15 +393,18 @@ async function build(payload) {
   };
 
   instance = await WebAssembly.instantiate(module, imports);
+  programInstance = instance;
   let code;
   try {
     code = wasi.start(instance);
   } catch (e) {
     stopThreads();
-    reportCrash(e, binary, opts);
+    if (session) post({ id: 'dbg-ended' });
+    reportCrash(e, binary, opts, rewrite);
     return TRAP_EXIT;
   }
   stopThreads();
+  if (session) post({ id: 'dbg-ended' });
   if (code !== 0) write(`\n\x1b[91mprogram exited with code ${code}\x1b[0m\n`);
   return code;
 }
@@ -364,7 +413,7 @@ async function build(payload) {
 // what a trap is the wasm equivalent of.
 const TRAP_EXIT = 134;
 
-function reportCrash(error, binary, opts) {
+function reportCrash(error, binary, opts, rewrite) {
   // With standard wasm EH an uncaught C++ exception is not a trap: it unwinds
   // out of _start and arrives as a WebAssembly.Exception, which carries no JS
   // stack. What the throw shim recorded on the way past is used instead.
@@ -381,22 +430,23 @@ function reportCrash(error, binary, opts) {
     }
     const type = DebugInfo.demangleType(lastThrow.type) || 'unknown type';
     write(`\x1b[91m  ${type}${lastThrow.what ? ': ' + lastThrow.what : ''}\x1b[0m\n`);
-    writeBacktrace(lastThrow.error, binary);
+    writeBacktrace(lastThrow.error, binary, rewrite);
     return;
   }
   const trap = error instanceof WebAssembly.RuntimeError
     ? error.message
     : (error && error.message) || String(error);
   write(`\n\x1b[91mprogram crashed: ${trap}\x1b[0m\n`);
-  writeBacktrace(error, binary);
+  writeBacktrace(error, binary, rewrite);
 }
 
 // The debug sections are only read here: parsing them costs more than most
 // programs take to run, and a run that ends normally never needs them.
-function writeBacktrace(error, binary) {
+function writeBacktrace(error, binary, rewrite) {
   let text = null;
   try {
-    text = DebugInfo.backtrace(error, DebugInfo.parse(binary));
+    text = DebugInfo.backtrace(error, DebugInfo.parse(binary),
+      rewrite ? { remap: rewrite.remap } : undefined);
   } catch (e) {
     write(`\x1b[90m(could not read debug info: ${e.message})\x1b[0m\n`);
     return;

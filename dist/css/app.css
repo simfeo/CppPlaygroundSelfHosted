@@ -211,6 +211,85 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
 .pad { padding: 6px; }
 .pad input { width: 100%; }
 
+/* Debugger */
+#dbgBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 4px 8px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+#dbgBar button {
+  padding: 1px 8px;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.dbg-where {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#dbgPanels {
+  display: flex;
+  flex: none;
+  max-height: 40%;
+  border-bottom: 1px solid var(--border);
+}
+.dbg-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+.dbg-panel + .dbg-panel { border-left: 1px solid var(--border); }
+.dbg-title {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--fg-dim);
+  background: var(--bg2);
+  position: sticky;
+  top: 0;
+}
+#dbgStack, #dbgVars {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+#dbgStack li, #dbgVars li {
+  padding: 1px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+#dbgStack li { cursor: pointer; }
+#dbgStack li:hover, #dbgVars li:hover { background: var(--hover); }
+#dbgStack li.active { background: var(--bg); color: var(--accent); }
+#dbgVars li.muted { color: var(--fg-dim); font-style: italic; }
+.twisty { display: inline-block; width: 12px; color: var(--fg-dim); }
+.var-name { color: var(--accent); }
+.var-name.param { font-style: italic; }
+.var-type { color: var(--fg-dim); margin: 0 6px; }
+.var-value { color: var(--fg); }
+
+/* The line the program is stopped on. Ace draws markers behind the text, so
+   this has to be positioned into the same layer it uses. */
+.dbg-current-line {
+  position: absolute;
+  z-index: 4;
+  background: rgba(255, 212, 134, .18);
+  border-left: 2px solid var(--ansi-bright-yellow);
+}
+.ace_gutter-cell.ace_breakpoint {
+  background: radial-gradient(circle at 6px 50%, var(--ansi-red) 0 4px, transparent 5px);
+}
+
 /* File list */
 #fileList { list-style: none; margin: 0; padding: 4px 0; flex: none; }
 #fileList li {
