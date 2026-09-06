@@ -21,6 +21,7 @@
     lexical_block: 0x0b, member: 0x0d, pointer_type: 0x0f, reference_type: 0x10,
     compile_unit: 0x11, structure_type: 0x13, subroutine_type: 0x15, typedef: 0x16,
     union_type: 0x17, unspecified_parameters: 0x18, inlined_subroutine: 0x1d,
+    inheritance: 0x1c,
     subrange_type: 0x21, base_type: 0x24, const_type: 0x26, enumerator: 0x28,
     subprogram: 0x2e, variable: 0x34, volatile_type: 0x35, restrict_type: 0x37,
     rvalue_reference_type: 0x42,
@@ -257,6 +258,51 @@
       return 0;
     }
 
+    /* Splits template arguments at the top level only, so the comma inside
+     * map<int, vector<int>> does not count as a separator. */
+    function splitArgs(text) {
+      const args = [];
+      let depth = 0, start = 0;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '<' || c === '(') depth++;
+        else if (c === '>' || c === ')') depth--;
+        else if (c === ',' && depth === 0) { args.push(text.slice(start, i)); start = i + 1; }
+      }
+      args.push(text.slice(start));
+      return args.map(a => a.trim()).filter(a => a.length);
+    }
+
+    // Arguments the programmer never wrote and does not want to read back.
+    const DEFAULTED = /^std::(allocator|char_traits|default_delete|less|hash|equal_to)</;
+
+    /*
+     * DWARF spells a type in full: vector<int> arrives as
+     * vector<int, std::__2::allocator<int> >, and a string is four lines wide.
+     * This puts it back into the form it was written in, which is the whole
+     * point of the type column.
+     */
+    function simplify(name) {
+      const open = name.indexOf('<');
+      if (open < 0 || name[name.length - 1] !== '>') return name;
+      const base = name.slice(0, open);
+      let args = splitArgs(name.slice(open + 1, -1)).map(simplify);
+      while (args.length > 1 && DEFAULTED.test(args[args.length - 1])) args.pop();
+      // The name arrives unqualified at the top level and qualified inside a
+      // template argument, so the namespace is stripped before matching.
+      const bare = base.slice(base.lastIndexOf(':') + 1);
+      if (args.length === 1 && args[0] === 'char') {
+        if (bare === 'basic_string') return 'std::string';
+        if (bare === 'basic_string_view') return 'std::string_view';
+      }
+      const inner = args.join(', ');
+      return base + '<' + inner + (inner[inner.length - 1] === '>' ? ' >' : '>');
+    }
+
+    function pretty(name) {
+      return simplify(name.split('std::__2::').join('std::'));
+    }
+
     /* A readable spelling of a type, close to how it was written. */
     function typeName(die) {
       if (!die) return 'void';
@@ -273,7 +319,7 @@
         }
         default: {
           const name = nameOf(die);
-          if (name) return name;
+          if (name) return pretty(name);
           if (die.tag === TAG.structure_type || die.tag === TAG.class_type) return '(anonymous struct)';
           if (die.tag === TAG.union_type) return '(anonymous union)';
           return '?';
@@ -494,6 +540,264 @@
   }
 
   /*
+   * Finds a member by name and returns its offset within the outer object.
+   * Recurses through base classes and through anonymous members, because the
+   * pieces of a libc++ container are rarely where a formatter would write them:
+   * optional keeps __engaged_ in a base and __val_ inside an unnamed union.
+   */
+  function member(dw, type, name, depth) {
+    const t = dw.stripped(type);
+    const level = depth || 0;
+    // The chain is deeper than it looks: libc++ reaches __optional_destruct_base,
+    // where the value actually lives, through six layers of base class.
+    if (!t || !t.children || level > 8) return null;
+    for (const child of t.children) {
+      const at = child.attrs[AT.data_member_location];
+      if (child.tag === TAG.member) {
+        const own = dw.nameOf(child);
+        if (typeof at !== 'number') continue;
+        if (own === name) return { die: child, type: dw.typeOf(child), offset: at };
+        if (own === null) {
+          const nested = member(dw, dw.typeOf(child), name, level + 1);
+          if (nested) return { die: nested.die, type: nested.type, offset: at + nested.offset };
+        }
+      } else if (child.tag === TAG.inheritance && typeof at === 'number') {
+        const base = member(dw, dw.typeOf(child), name, level + 1);
+        if (base) return { die: base.die, type: base.type, offset: at + base.offset };
+      }
+    }
+    return null;
+  }
+
+  function memberAny(dw, type, names) {
+    for (const name of names) {
+      const found = member(dw, type, name);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /* The template name without its arguments, which is what a formatter is
+   * keyed on: every std::vector<T> is served by the same one. */
+  function templateName(name) {
+    if (!name) return null;
+    const cut = name.indexOf('<');
+    return cut < 0 ? name : name.slice(0, cut);
+  }
+
+  function pointee(dw, type) {
+    const t = dw.stripped(type);
+    if (!t || t.tag !== TAG.pointer_type) return null;
+    return dw.typeOf(t);
+  }
+
+  function escape(text) {
+    return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
+               .replace(/\t/g, '\\t').replace(/\r/g, '\\r');
+  }
+
+  /*
+   * Renderers for the standard library types, in the spirit of gdb's
+   * pretty-printers: without them a string is a union of bitfields and a vector
+   * is three pointers. Everything is located by DWARF member name rather than
+   * by hard-coded offsets, so a libc++ update that moves a field does not
+   * silently produce wrong values. Any formatter may return null, and the plain
+   * member-by-member rendering takes over - which is also what happens for a
+   * half-constructed object, where the raw fields are the more honest answer.
+   */
+  const FORMATTERS = {
+    basic_string(ctx) {
+      const { dw, t, address, mem } = ctx;
+      const rep = memberAny(dw, t, ['__rep_', '__r_']);
+      if (!rep) return null;
+      // __rep is a union of __l (heap) and __s (inline), and the layout is only
+      // decodable for a byte-sized character: the short form packs its size and
+      // the long/short flag into bitfields this reader does not decode, so both
+      // are taken from the raw last byte instead.
+      const long_ = member(dw, rep.type, '__l');
+      const short_ = member(dw, rep.type, '__s');
+      if (!long_ || !short_) return null;
+      const data = member(dw, long_.type, '__data_');
+      const size = member(dw, long_.type, '__size_');
+      const inline_ = member(dw, short_.type, '__data_');
+      if (!data || !size || !inline_) return null;
+      const chars = dw.stripped(pointee(dw, data.type));
+      if (!chars || dw.sizeOf(chars) !== 1) return null;
+
+      const width = dw.sizeOf(rep.type) || dw.sizeOf(t);
+      if (!width) return null;
+      const flags = mem.u8(address + rep.offset + width - 1);
+      if (flags === null) return null;
+
+      let at, count, capacity;
+      if (flags & 0x80) {
+        at = mem.u32(address + rep.offset + long_.offset + data.offset);
+        count = mem.u32(address + rep.offset + long_.offset + size.offset);
+        const cap = mem.u32(address + rep.offset + long_.offset + size.offset + 4);
+        capacity = cap === null ? null : (cap & 0x7fffffff);
+      } else {
+        at = address + rep.offset + short_.offset + inline_.offset;
+        count = flags & 0x7f;
+        capacity = width - 1;
+      }
+      if (at === null || count === null || count > mem.length) return null;
+
+      const text = mem.cstring(at, Math.min(count, 400) + 1);
+      if (text === null) return null;
+      const shown = count > 400 ? text + '...' : text;
+      const children = [
+        { name: '[size]', type: '', value: String(count) },
+        { name: '[capacity]', type: '', value: capacity === null ? '?' : String(capacity) },
+      ];
+      return { value: '"' + escape(shown) + '"', children };
+    },
+
+    basic_string_view(ctx) {
+      const { dw, t, address, mem } = ctx;
+      const data = member(dw, t, '__data_');
+      const size = member(dw, t, '__size_');
+      if (!data || !size) return null;
+      const chars = dw.stripped(pointee(dw, data.type));
+      if (!chars || dw.sizeOf(chars) !== 1) return null;
+      const at = mem.u32(address + data.offset);
+      const count = mem.u32(address + size.offset);
+      if (at === null || count === null || count > mem.length) return null;
+      if (!at) return { value: count ? '<bad>' : '""' };
+      const text = mem.cstring(at, Math.min(count, 400) + 1);
+      if (text === null) return null;
+      return {
+        value: '"' + escape(count > 400 ? text + '...' : text) + '"',
+        children: [{ name: '[size]', type: '', value: String(count) }],
+      };
+    },
+
+    vector(ctx) {
+      const { dw, t, address, mem, read, level } = ctx;
+      const begin = member(dw, t, '__begin_');
+      const end = member(dw, t, '__end_');
+      if (!begin || !end) return null;
+      const element = pointee(dw, begin.type);
+      const stride = dw.sizeOf(element);
+      if (!element || !stride) return null;   // vector<bool> has no element pointer
+
+      const first = mem.u32(address + begin.offset);
+      const last = mem.u32(address + end.offset);
+      if (first === null || last === null || last < first) return null;
+      const count = (last - first) / stride;
+      if (!Number.isInteger(count) || count < 0 || count > mem.length) return null;
+
+      const children = [];
+      for (let i = 0; i < Math.min(count, MAX_ELEMENTS); i++) {
+        const item = read(element, first + i * stride, level + 1);
+        children.push({ name: `[${i}]`, type: dw.typeName(element), value: item.value, children: item.children });
+      }
+      if (count > MAX_ELEMENTS) children.push({ name: '...', type: '', value: `${count - MAX_ELEMENTS} more` });
+      // Summarised before the size and capacity rows join it, so they do not
+      // read as two more elements of the vector.
+      const value = count ? preview(children, count) : '{}';
+      const cap = memberAny(dw, t, ['__cap_', '__end_cap_']);
+      const capEnd = cap ? mem.u32(address + cap.offset) : null;
+      children.push({ name: '[size]', type: '', value: String(count) });
+      if (capEnd !== null && capEnd >= first) {
+        children.push({ name: '[capacity]', type: '', value: String((capEnd - first) / stride) });
+      }
+      return { value, children };
+    },
+
+    array(ctx) {
+      const { dw, t, address, read, level } = ctx;
+      const elems = member(dw, t, '__elems_');
+      if (!elems) return null;
+      return read(elems.type, address + elems.offset, level);
+    },
+
+    unique_ptr(ctx) {
+      const { dw, t, address, mem, read, level } = ctx;
+      const ptr = member(dw, t, '__ptr_');
+      if (!ptr) return null;
+      const target = mem.u32(address + ptr.offset);
+      if (target === null) return null;
+      if (!target) return { value: 'nullptr' };
+      const held = pointee(dw, ptr.type);
+      const hex = '0x' + target.toString(16);
+      if (!held || level >= 2) return { value: hex };
+      const inner = read(held, target, level + 1);
+      return { value: `${hex} -> ${inner.value}`, children: [{ name: '*', type: dw.typeName(held), value: inner.value, children: inner.children }] };
+    },
+
+    shared_ptr(ctx) {
+      const { dw, t, address, mem, read, level } = ctx;
+      const ptr = member(dw, t, '__ptr_');
+      if (!ptr) return null;
+      const target = mem.u32(address + ptr.offset);
+      if (target === null) return null;
+      if (!target) return { value: 'nullptr' };
+      const held = pointee(dw, ptr.type);
+      const hex = '0x' + target.toString(16);
+      const children = [];
+      let shown = hex;
+      if (held && level < 2) {
+        const inner = read(held, target, level + 1);
+        shown = `${hex} -> ${inner.value}`;
+        // libc++ reaches the pointee through an element_type typedef, whose name
+        // says nothing; the type behind it is what the reader wants.
+        const named = dw.nameOf(held) === 'element_type' ? dw.stripped(held) : held;
+        children.push({ name: '*', type: dw.typeName(named), value: inner.value, children: inner.children });
+      }
+      // The control block's shared count is one less than use_count(), and its
+      // type is usually absent from the user's debug info, so the field is read
+      // at its fixed place past the vtable pointer rather than looked up.
+      const cntrl = member(dw, t, '__cntrl_');
+      if (cntrl) {
+        const block = mem.u32(address + cntrl.offset);
+        const owners = block ? mem.u32(block + 4) : null;
+        if (owners !== null && owners < 0x1000000) {
+          children.push({ name: '[use_count]', type: '', value: String(owners + 1) });
+        }
+      }
+      return { value: shown, children };
+    },
+
+    optional(ctx) {
+      const { dw, t, address, mem, read, level } = ctx;
+      const engaged = member(dw, t, '__engaged_');
+      const value = member(dw, t, '__val_');
+      if (!engaged || !value) return null;
+      const on = mem.u8(address + engaged.offset);
+      if (on === null) return null;
+      if (!on) return { value: 'nullopt' };
+      const inner = read(value.type, address + value.offset, level);
+      return { value: inner.value, children: inner.children };
+    },
+  };
+
+  FORMATTERS.__shared_ptr = FORMATTERS.shared_ptr;
+
+  /* The data members of a class, with those it inherits folded in at their own
+   * offsets. Without the base walk a derived object shows as {}, since the
+   * fields it displays are all one level down. */
+  function fields(dw, t, address, mem, level, depth) {
+    const rows = [];
+    if (depth > 8) return rows;
+    for (const child of t.children) {
+      const at = child.attrs[AT.data_member_location];
+      if (typeof at !== 'number') continue;
+      if (child.tag === TAG.inheritance) {
+        const base = dw.stripped(dw.typeOf(child));
+        if (base && base.children) rows.push(...fields(dw, base, address + at, mem, level, depth + 1));
+        continue;
+      }
+      if (child.tag !== TAG.member) continue;
+      const name = dw.nameOf(child);
+      if (name === null) continue;
+      const memberType = dw.typeOf(child);
+      const item = readValue(dw, memberType, address + at, mem, level + 1);
+      rows.push({ name, type: dw.typeName(memberType), value: item.value, children: item.children });
+    }
+    return rows;
+  }
+
+  /*
    * Renders one variable as {value, children}. Depth is bounded because a type
    * can refer to itself: a linked list node would otherwise recurse forever.
    */
@@ -576,17 +880,19 @@
       case TAG.structure_type:
       case TAG.class_type:
       case TAG.union_type: {
-        if (level >= 3) return { value: '{...}' };
-        const children = [];
-        for (const member of t.children) {
-          if (member.tag !== TAG.member) continue;
-          const name = dw.nameOf(member);
-          const at = member.attrs[AT.data_member_location];
-          if (name === null || typeof at !== 'number') continue;
-          const memberType = dw.typeOf(member);
-          const item = readValue(dw, memberType, address + at, mem, level + 1);
-          children.push({ name, type: dw.typeName(memberType), value: item.value, children: item.children });
+        const formatter = level < 4 ? FORMATTERS[templateName(dw.nameOf(t))] : null;
+        if (formatter) {
+          const read = (type, at, depth) => readValue(dw, type, at, mem, depth);
+          let shaped = null;
+          try {
+            shaped = formatter({ dw, t, address, mem, read, level });
+          } catch (e) {
+            shaped = null;   // a bad read is not worth losing the whole panel over
+          }
+          if (shaped) return shaped;
         }
+        if (level >= 3) return { value: '{...}' };
+        const children = fields(dw, t, address, mem, level, 0);
         return { value: preview(children, children.length, true), children };
       }
 
