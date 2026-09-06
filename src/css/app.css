@@ -1,6 +1,9 @@
 /* Dark is the default; [data-theme="light"] on <html> overrides it. Everything
    colour-related goes through these variables so the switch is complete. */
 :root {
+  /* Scrollbars and native widgets are painted by the browser, not by these
+     variables, and stay light unless it is told which way the page goes. */
+  color-scheme: dark;
   --bg: #1f1f1f;
   --bg2: #181818;
   --bg3: #2b2b2b;
@@ -28,6 +31,7 @@
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #ffffff;
   --bg2: #f8f8f8;
   --bg3: #e9e9e9;
@@ -253,6 +257,7 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
   background: var(--bg2);
   position: sticky;
   top: 0;
+  left: 0;   /* pinned on both axes, since the panel now scrolls sideways too */
 }
 #dbgStack, #dbgVars {
   list-style: none;
@@ -260,12 +265,15 @@ body.dragging iframe, body.dragging #editor { pointer-events: none; }
   padding: 2px 0;
   font-family: var(--mono);
   font-size: 11px;
+  /* Widened to the longest row so the panel's overflow:auto has something to
+     scroll: a template type or a deep frame is routinely wider than the panel,
+     and an ellipsis on the row would hide it with no way to reach it. Rows
+     still stretch to this width, so hover covers the whole scrolled line. */
+  min-width: max-content;
 }
 #dbgStack li, #dbgVars li {
   padding: 1px 8px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: default;
 }
 #dbgStack li { cursor: pointer; }

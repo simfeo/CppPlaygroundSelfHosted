@@ -413,12 +413,16 @@ inline std::string greeting(const std::string& who) {
     el.dbgWhere.textContent = frames.length
       ? `${frames[0].name} at ${short(frames[0].path)}:${frames[0].line}`
       : 'stopped';
+    // The bar has no room to grow, so the one place a long name stays clipped
+    // keeps it reachable on hover.
+    el.dbgWhere.title = el.dbgWhere.textContent;
 
     el.dbgStack.innerHTML = '';
     frames.forEach((f, i) => {
       const li = document.createElement('li');
       li.className = i === stoppedFrame ? 'active' : '';
       li.textContent = `#${i}  ${f.name}  ${short(f.path)}:${f.line}`;
+      li.title = li.textContent;
       li.onclick = () => { stoppedFrame = i; renderStop(payload); showFrameSource(f); };
       el.dbgStack.appendChild(li);
     });
@@ -484,6 +488,7 @@ inline std::string greeting(const std::string& who) {
     value.className = 'var-value';
     value.textContent = v.value;
     li.appendChild(value);
+    li.title = `${v.name}  ${v.type}  ${v.value}`;
 
     if (has) {
       let open = false;
