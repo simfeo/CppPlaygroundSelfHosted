@@ -591,6 +591,22 @@
     return dw.typeOf(t);
   }
 
+  /* A string iterator is either a bare pointer or a __wrap_iter holding one,
+   * depending on whether the subject was a std::string or a char array.
+   * Returns where it points and what it points at. */
+  function iteratorTarget(dw, type, address, mem) {
+    const t = dw.stripped(type);
+    if (!t) return null;
+    if (t.tag === TAG.pointer_type) {
+      return { pointer: mem.u32(address), element: dw.typeOf(t) };
+    }
+    const held = member(dw, t, '__i_');
+    if (!held) return null;
+    const inner = dw.stripped(held.type);
+    if (!inner || inner.tag !== TAG.pointer_type) return null;
+    return { pointer: mem.u32(address + held.offset), element: dw.typeOf(inner) };
+  }
+
   function escape(text) {
     return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
                .replace(/\t/g, '\\t').replace(/\r/g, '\\r');
@@ -788,7 +804,87 @@
       const inner = read(value.type, address + value.offset, level);
       return { value: inner.value, children: inner.children };
     },
+
+    basic_regex(ctx) {
+      const { dw, t, address, mem } = ctx;
+      const flags = member(dw, t, '__flags_');
+      const marks = member(dw, t, '__marked_count_');
+      if (!flags || !marks) return null;
+      const bits = mem.u32(address + flags.offset);
+      const count = mem.u32(address + marks.offset);
+      if (bits === null || count === null) return null;
+
+      // The grammar is a choice rather than a flag, and ECMAScript is zero in
+      // the usual ABI, so it is what is left when no other grammar bit is set.
+      const grammar = GRAMMARS.find(([bit]) => bits & bit);
+      const parts = [grammar ? grammar[1] : 'ECMAScript'];
+      for (const [bit, name] of REGEX_OPTIONS) if (bits & bit) parts.push(name);
+      // The pattern is not here to show: libc++ compiles it to a state machine
+      // on construction and keeps no copy of the text it was given.
+      return {
+        value: `{${parts.join('|')}, ${count} group${count === 1 ? '' : 's'}}`,
+        children: [{ name: '[mark_count]', type: '', value: String(count) }],
+      };
+    },
+
+    sub_match(ctx) {
+      const { dw, t, address, mem } = ctx;
+      // first and second come from the pair it derives from.
+      const matched = member(dw, t, 'matched');
+      const first = member(dw, t, 'first');
+      const second = member(dw, t, 'second');
+      if (!matched || !first || !second) return null;
+      const on = mem.u8(address + matched.offset);
+      if (on === null) return null;
+      if (!on) return { value: '<unmatched>' };
+
+      const from = iteratorTarget(dw, first.type, address + first.offset, mem);
+      const to = iteratorTarget(dw, second.type, address + second.offset, mem);
+      if (!from || !to || from.pointer === null || to.pointer === null) return null;
+      const chars = dw.stripped(from.element);
+      if (!chars || dw.sizeOf(chars) !== 1) return null;
+
+      /* These iterators point into the subject, which match_results does not
+       * own. Once that string is gone they address whatever took its place, so
+       * the span is range checked and anything implausible falls back to the
+       * raw fields. A stale pointer that still looks reasonable cannot be
+       * detected here, and no debugger detects it either. */
+      const length = to.pointer - from.pointer;
+      if (length < 0 || length > mem.length || to.pointer > mem.length) return null;
+      const text = mem.cstring(from.pointer, Math.min(length, 400));
+      if (text === null) return null;
+      return { value: '"' + escape(length > 400 ? text + '...' : text) + '"' };
+    },
+
+    match_results(ctx) {
+      const { dw, t, address, mem, read, level } = ctx;
+      const matches = member(dw, t, '__matches_');
+      if (!matches) return null;
+      const ready = member(dw, t, '__ready_');
+      if (ready) {
+        const on = mem.u8(address + ready.offset);
+        if (on === null) return null;
+        if (!on) return { value: '<no match>' };
+      }
+      // __matches_ is sized to mark_count + 1, so [0] is the whole match and
+      // the capture groups follow it, exactly as operator[] presents them.
+      const groups = read(matches.type, address + matches.offset, level);
+      const children = (groups.children || []).slice();
+      for (const [name, label] of [['__prefix_', '[prefix]'], ['__suffix_', '[suffix]']]) {
+        const part = member(dw, t, name);
+        if (!part) continue;
+        const item = read(part.type, address + part.offset, level + 1);
+        children.push({ name: label, type: '', value: item.value });
+      }
+      return { value: groups.value, children };
+    },
   };
+
+  // regex_constants::syntax_option_type, which libc++ stores raw in __flags_.
+  const GRAMMARS = [[1 << 4, 'basic'], [1 << 5, 'extended'], [1 << 6, 'awk'],
+                    [1 << 7, 'grep'], [1 << 8, 'egrep'], [1 << 9, 'ECMAScript']];
+  const REGEX_OPTIONS = [[1 << 0, 'icase'], [1 << 1, 'nosubs'], [1 << 2, 'optimize'],
+                         [1 << 3, 'collate'], [1 << 10, 'multiline']];
 
   FORMATTERS.__shared_ptr = FORMATTERS.shared_ptr;
 
