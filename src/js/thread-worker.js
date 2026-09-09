@@ -43,7 +43,10 @@ self.onmessage = async (event) => {
   let nested = 0;
   const imports = {
     ...wasi.imports,
-    playground: { on_throw: onThrow },
+    // The throw shim is linked into every program, so a thread has to satisfy
+    // its stop-point imports even though threaded programs are never debugged:
+    // an import left unbound fails instantiation before the thread starts.
+    playground: { on_throw: onThrow, on_line: () => {}, on_local: () => {} },
     env: { memory },
     wasi: {
       'thread-spawn': (arg) => {
