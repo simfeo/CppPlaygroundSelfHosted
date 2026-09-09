@@ -8,7 +8,8 @@
 set -euo pipefail
 
 WORK="${1:-$HOME/wasm-clang}"
-LLVM_VERSION="${LLVM_VERSION:-22.1.8}"
+# libc++ gained views::enumerate and ranges::stride_view in 23; 22 has neither.
+LLVM_VERSION="${LLVM_VERSION:-23.1.1}"
 WASI_SDK_VERSION="${WASI_SDK_VERSION:-33}"
 JOBS="${JOBS:-$(nproc)}"
 

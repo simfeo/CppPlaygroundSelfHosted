@@ -3,9 +3,9 @@
 [![CI](https://github.com/simfeo/CppPlaygroundSelfHosted/actions/workflows/ci.yml/badge.svg)](https://github.com/simfeo/CppPlaygroundSelfHosted/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/simfeo/CppPlaygroundSelfHosted?sort=semver)](https://github.com/simfeo/CppPlaygroundSelfHosted/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![clang](https://img.shields.io/badge/clang-22.1.8-orange)](tools/toolchain/build_wasm_clang.sh)
+[![clang](https://img.shields.io/badge/clang-23.1.1-orange)](tools/toolchain/build_wasm_clang.sh)
 
-A complete C++ toolchain that runs in your browser. **Clang 22.1.8, wasm-ld and
+A complete C++ toolchain that runs in your browser. **Clang 23.1.1, wasm-ld and
 libc++ are themselves WebAssembly binaries**, so your code is compiled, linked
 and executed entirely on the client — with threads, exceptions and interactive
 input. No server-side compiler, no accounts, and it keeps working offline once
@@ -64,11 +64,11 @@ offline once loaded.
 
 ## Features
 
-- **Clang 22.1.8** targeting `wasm32-wasip1`, built from source (see below)
+- **Clang 23.1.1** targeting `wasm32-wasip1`, built from source (see below)
 - C++ syntax highlighting from a real parser (Tree-sitter), in VS Code's
   Dark+ colours: types, calls, members, parameters and macros are distinguished
 - Multi-file projects (sources + headers, subdirectories supported)
-- `-std=c++11/14/17/20`, `-O0..-O3/-Os`, plus free-form extra flags
+- `-std=c++11/14/17/20/23/26`, `-O0..-O3/-Os`, plus free-form extra flags
 - Full C++ standard library: libc++ built from the same LLVM release
 - **Working exceptions**, using the standardized wasm EH opcodes
 - stdout/stderr console with clang's colored diagnostics
@@ -139,22 +139,146 @@ Linux (WSL is fine), **no Docker**. Needs cmake, ninja, a C++17 host compiler,
 curl, ~5 GB disk and about an hour on 16 cores:
 
 ```bash
+sudo apt install -y cmake ninja-build build-essential curl xz-utils patch python3
+export WASI_SDK_PREFIX=$HOME/wasm-clang/wasi-sdk
 bash tools/toolchain/build_wasm_clang.sh ~/wasm-clang
 ```
 
-That downloads wasi-sdk 33 and the LLVM 22.1.8 release, applies the patches in
+Keep the work directory on a real Linux filesystem. Building under `/mnt/c` or
+`/mnt/d` from WSL works but is several times slower.
+
+`WASI_SDK_PREFIX` has to be exported, not just passed to cmake: the threads
+runtimes use `tools/toolchain/wasi-sdk-p1-threads.cmake`, and cmake does not
+pass `-D` cache variables down into the `try_compile` it uses to probe the
+compiler. Without it that half fails at configure time with
+`set WASI_SDK_PREFIX (env or -D) to the wasi-sdk path`.
+
+That downloads wasi-sdk 33 and the LLVM release, applies the patches in
 `tools/toolchain/patches/`, builds native tblgen, then cross-compiles clang and
 lld to `wasm32-wasi`. It also rebuilds libc++/libc++abi/libunwind, because
 wasi-sdk's prebuilt C++ libraries use the *legacy* wasm exception opcodes and
-browsers reject a module mixing those with the standardized ones clang 22 emits.
+browsers reject a module mixing those with the standardized ones clang emits.
 
 Then pack the sysroot and install the result into `dist/vendor/`:
 
 ```bash
-python tools/pack_sysroot.py --wasi-sdk ~/wasm-clang/wasi-sdk \
-    --runtimes ~/wasm-clang/runtimes -o ~/wasm-clang/out/sysroot.tar.gz
-python tools/build.py --toolchain ~/wasm-clang/out
+python3 tools/pack_sysroot.py --wasi-sdk ~/wasm-clang/wasi-sdk \
+    --runtimes ~/wasm-clang/runtimes \
+    --runtimes-threads ~/wasm-clang/runtimes-threads \
+    -o ~/wasm-clang/out/sysroot.tar.gz
+python3 tools/build.py --toolchain ~/wasm-clang/out
 ```
+
+Re-running the build script is incremental: downloads and the source tree are
+reused, patches are applied through a dry-run check so they are idempotent, and
+ninja rebuilds only what changed.
+
+Finally serve it and check by hand. The four things worth compiling, because
+each exercises a different part of the toolchain: a program using a recent
+standard library feature, one that throws and does not catch (exceptions plus
+the symbolized backtrace), one using `std::thread` (the separate threads
+runtime), and one run under the debugger with a `std::string` and a
+`std::vector` in scope (the DWARF reader and the libc++ formatters).
+
+### Upgrading LLVM
+
+The version lives in one variable at the top of
+`tools/toolchain/build_wasm_clang.sh`, overridable from the environment:
+
+```bash
+LLVM_VERSION=24.1.0 bash tools/toolchain/build_wasm_clang.sh ~/wasm-clang
+```
+
+**Delete the old source tree first.** The script only downloads when
+`$WORK/llvm-project` is missing, and neither that directory nor the cached
+`$WORK/dl/llvm.tar.xz` carries a version in its name. Change the version
+without clearing them and it prints the new version, reports every patch as
+"already applied", and cheerfully rebuilds the *old* compiler:
+
+```bash
+cd ~/wasm-clang
+rm -rf llvm-project build-native build-wasm build-runtimes build-runtimes-threads \
+       runtimes runtimes-threads out dl/llvm.tar.xz
+```
+
+(Rename rather than `rm` if you want to keep the previous compiler around.)
+Leave `wasi-sdk` and `dl/wasi-sdk.tar.gz` alone unless you are also changing
+`WASI_SDK_VERSION`.
+
+Then expect to deal with three kinds of breakage, in the order they appear:
+
+1. **A patch no longer applies.** The script stops with
+   `ERROR: <name> does not apply to llvm-project <version>`. Regenerate it with
+   `patchgen.py`, which diffs against the tree you actually have:
+
+   ```bash
+   python3 tools/toolchain/patchgen.py ~/wasm-clang/llvm-project \
+       llvm/lib/Support/Whatever.cpp 000N-name.patch <<'EOF'
+   text to find
+   ---
+   text to put there instead
+   EOF
+   ```
+
+   It refuses unless the search text occurs exactly once, so give it enough
+   context to be unique.
+
+2. **A patch applies but no longer *fits*.** Worse than the first case, because
+   nothing complains until the link fails with an undefined symbol. This
+   happened going from 22 to 23: patch 0001 defines a no-op
+   `installExceptionOrSignalHandlers` for WASI, and LLVM 23 gave that function a
+   `bool` parameter, so the patch cleanly defined an overload nobody called. Fix
+   is the same: reverse it (`patch -d ~/wasm-clang/llvm-project -p1 -R -i <patch>`),
+   then regenerate with the new signature.
+
+3. **libc++ stops building for WASI.** Its locale layer is mid-refactor
+   upstream, and WASI has no dedicated backend, so it lands in a fallback that
+   is not always kept working. Patch 0010 is exactly this: libc++ 23 made the
+   z/OS locale shim unconditional, and it redeclares `strtod_l`, `strtof_l`,
+   `strtold_l` and `vasprintf`, which wasi-libc already declares, giving dozens
+   of `cannot add 'abi_tag' attribute in a redeclaration` errors.
+
+Check the result really is the version you asked for, since the traps above are
+all silent:
+
+```bash
+grep LLVM_VERSION_ ~/wasm-clang/llvm-project/cmake/Modules/LLVMVersion.cmake
+```
+
+One mismatch is expected and harmless: the sysroot's resource directory
+(builtin headers and `libclang_rt.builtins.a`) comes from wasi-sdk, so it stays
+at wasi-sdk's clang major while the compiler moves ahead. `pack_sysroot.py`
+prints it as `clang resource version: NN`, and `worker.js` discovers whatever
+directory is there rather than assuming a number.
+
+### Adding a language standard
+
+When a new standard shows up, say C++29, it is two lines in `src/index.html`:
+
+```html
+<select id="selStd">
+  ...
+  <option>c++26</option>
+  <option>c++29</option>
+</select>
+```
+
+Then `python tools/build.py` to copy it into `dist/`. Nothing else needs
+touching: the selector's value is passed straight through as `-std=<value>` in
+`worker.js`, and `cmake.js` strips the `c++` prefix to get
+`CMAKE_CXX_STANDARD`. The pinned C++17 in `worker.js` is the throw shim, which
+is built separately and deliberately does not follow the toolbar.
+
+Check the compiler actually accepts it before adding the entry, since clang
+takes the flag only once it knows the name:
+
+```bash
+grep -ao 'c++2[0-9a-z]' dist/vendor/clang.wasm.gz  # after gunzip, or:
+echo 'int main(){}' | clang -std=c++29 -x c++ - -o /dev/null
+```
+
+Adding an entry clang does not know produces `invalid value 'c++29' in
+'-std=c++29'` on every compile, so it is worth the ten seconds.
 
 ### What the port needed
 
@@ -165,10 +289,12 @@ all of them. Two mechanisms bridge that:
   types and failing stubs for `fork`/`exec`, `sigaction`, rlimits, `dladdr` and
   friends, force-included into every translation unit. LLVM already handles
   these calls failing, so ENOSYS is both honest and sufficient.
-- `tools/toolchain/patches/` — nine small patches where behaviour genuinely has
+- `tools/toolchain/patches/` — ten small patches where behaviour genuinely has
   to change. Two of them fix an upstream bug: LLVM and clang test `__WASM__`,
   but the macro clang actually defines is `__wasm__`, so the ABI-annotation
-  macros end up undefined on wasm and headers fail to parse.
+  macros end up undefined on wasm and headers fail to parse. The tenth keeps
+  libc++ from including its z/OS locale shim on WASI, where wasi-libc already
+  declares the functions the shim defines.
 
 `tools/toolchain/wasi-shim/eh_tag.s` deserves a note: with legacy EH, libunwind
 happened to define the `__cpp_exception` tag, so wasi-sdk's prebuilt archive

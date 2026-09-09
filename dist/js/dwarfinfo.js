@@ -673,18 +673,39 @@
 
     vector(ctx) {
       const { dw, t, address, mem, read, level } = ctx;
-      const begin = member(dw, t, '__begin_');
-      const end = member(dw, t, '__end_');
-      if (!begin || !end) return null;
+      // libc++ 23 gathered the fields into a __vector_layout member and stores
+      // a size where older versions kept an end pointer. Both spellings are
+      // read, since which one a program has depends on the toolchain it was
+      // compiled with rather than on anything the reader controls.
+      const layout = member(dw, t, '__layout_');
+      const scope = layout ? layout.type : t;
+      const at = address + (layout ? layout.offset : 0);
+
+      const begin = member(dw, scope, '__begin_');
+      if (!begin) return null;
       const element = pointee(dw, begin.type);
       const stride = dw.sizeOf(element);
       if (!element || !stride) return null;   // vector<bool> has no element pointer
 
-      const first = mem.u32(address + begin.offset);
-      const last = mem.u32(address + end.offset);
-      if (first === null || last === null || last < first) return null;
-      const count = (last - first) / stride;
-      if (!Number.isInteger(count) || count < 0 || count > mem.length) return null;
+      const first = mem.u32(at + begin.offset);
+      if (first === null) return null;
+
+      let count, capacity;
+      const size = member(dw, scope, '__size_');
+      if (size) {
+        count = mem.u32(at + size.offset);
+        const cap = member(dw, scope, '__capacity_');
+        capacity = cap ? mem.u32(at + cap.offset) : null;
+      } else {
+        const end = member(dw, scope, '__end_');
+        const last = end ? mem.u32(at + end.offset) : null;
+        if (last === null || last < first) return null;
+        count = (last - first) / stride;
+        const cap = memberAny(dw, scope, ['__cap_', '__end_cap_']);
+        const capEnd = cap ? mem.u32(at + cap.offset) : null;
+        capacity = capEnd === null || capEnd < first ? null : (capEnd - first) / stride;
+      }
+      if (count === null || !Number.isInteger(count) || count < 0 || count > mem.length) return null;
 
       const children = [];
       for (let i = 0; i < Math.min(count, MAX_ELEMENTS); i++) {
@@ -695,11 +716,9 @@
       // Summarised before the size and capacity rows join it, so they do not
       // read as two more elements of the vector.
       const value = count ? preview(children, count) : '{}';
-      const cap = memberAny(dw, t, ['__cap_', '__end_cap_']);
-      const capEnd = cap ? mem.u32(address + cap.offset) : null;
       children.push({ name: '[size]', type: '', value: String(count) });
-      if (capEnd !== null && capEnd >= first) {
-        children.push({ name: '[capacity]', type: '', value: String((capEnd - first) / stride) });
+      if (capacity !== null && Number.isInteger(capacity)) {
+        children.push({ name: '[capacity]', type: '', value: String(capacity) });
       }
       return { value, children };
     },
